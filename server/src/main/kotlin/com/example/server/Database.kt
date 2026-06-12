@@ -1,0 +1,43 @@
+package com.example.server
+
+import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.jdbc.*
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+
+object Recipes : Table("recipes") {
+    val id = varchar("id", 50)
+    val title = varchar("title", 255)
+    val description = text("description")
+    val ingredients = text("ingredients")
+    val instructions = text("instructions")
+    val imageUri = varchar("imageUri", 512).nullable()
+    val rating = double("rating")
+    val tags = text("tags")
+    val category = varchar("category", 100)
+    val isFavorite = bool("isFavorite")
+    val owner = varchar("owner", 50)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object Users : Table("users") {
+    val username = varchar("username", 50)
+    val password = varchar("password", 50)
+
+    override val primaryKey = PrimaryKey(username)
+}
+
+object Categories : Table("categories") {
+    val id = varchar("id", 50)
+    val name = varchar("name", 100)
+    val owner = varchar("owner", 50)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+fun initDatabase() {
+    Database.connect("jdbc:h2:file:./data/recipes;DB_CLOSE_DELAY=-1;", driver = "org.h2.Driver")
+    transaction {
+        SchemaUtils.create(Recipes, Users, Categories)
+    }
+}
