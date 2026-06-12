@@ -39,7 +39,9 @@ fun initDatabase() {
     val cloudDbUrl = System.getenv("DATABASE_URL")
     try {
         if (cloudDbUrl != null) {
-            println("Connecting to Cloud Database...")
+            println("Connecting to Cloud Database: ${cloudDbUrl.take(20)}...")
+            // Explicitly load the driver
+            Class.forName("org.postgresql.Driver")
             Database.connect(cloudDbUrl, driver = "org.postgresql.Driver")
         } else {
             println("Connecting to Local Database...")
