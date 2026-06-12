@@ -4,11 +4,11 @@ COPY --chown=gradle:gradle . /home/gradle/src
 WORKDIR /home/gradle/src
 
 # Build the server shadow jar (or executable)
-# Note: Using :server:installDist or similar depending on the application plugin
 RUN ./gradlew :server:installDist --no-daemon
 
-# Use a lightweight JRE image for the final run
-FROM openjdk:17-slim
+# Use Eclipse Temurin as the base image for the final run
+# OpenJDK official images are deprecated, Temurin is the recommended alternative
+FROM eclipse-temurin:17-jre-alpine
 EXPOSE 8080
 RUN mkdir /app
 RUN mkdir /app/data
