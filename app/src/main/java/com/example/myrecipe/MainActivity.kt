@@ -1,7 +1,10 @@
 package com.example.myrecipe
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -28,10 +31,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.myrecipe.model.Recipe
@@ -40,21 +46,38 @@ import com.example.myrecipe.ui.LoginScreen
 import com.example.myrecipe.ui.ProfileScreen
 import com.example.myrecipe.ui.RecipeViewModel
 import com.example.myrecipe.ui.theme.MyRecipeTheme
+import java.io.File
+import java.util.Objects
 
 class MainActivity : ComponentActivity() {
+    private var authViewModel: AuthViewModel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MyRecipeTheme {
-                val authViewModel: AuthViewModel = viewModel()
-                if (authViewModel.isLoggedIn.value) {
-                    RecipeApp(authViewModel = authViewModel)
+                val viewModel: AuthViewModel = viewModel()
+                val recipeViewModel: RecipeViewModel = viewModel()
+                authViewModel = viewModel
+                if (viewModel.isLoggedIn.value) {
+                    val user = viewModel.currentUser.value
+                    LaunchedEffect(user) {
+                        user?.let {
+                            recipeViewModel.refreshData(it.username)
+                        }
+                    }
+                    RecipeApp(viewModel = recipeViewModel, authViewModel = viewModel)
                 } else {
-                    LoginScreen(authViewModel = authViewModel, onLoginSuccess = { })
+                    LoginScreen(authViewModel = viewModel, onLoginSuccess = { })
                 }
             }
         }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        authViewModel?.resetInactivityTimer()
     }
 }
 
@@ -135,7 +158,7 @@ fun RecipeApp(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> HomeScreen(viewModel)
+                0 -> HomeScreen(viewModel, authViewModel)
                 1 -> ExploreScreen(viewModel, searchQuery)
                 2 -> MyRecipesTab(viewModel, currentUser?.username ?: "")
                 3 -> ProfileScreen(authViewModel)
@@ -155,53 +178,119 @@ fun RecipeApp(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: RecipeViewModel) {
+fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     var selectedRecipe by remember { mutableStateOf<Recipe?>(null) }
     var recipeToEdit by remember { mutableStateOf<Recipe?>(null) }
     val recipes by viewModel.recipes.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val currentUser = authViewModel.currentUser.value
+    val context = LocalContext.current
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item {
-            Text(
-                text = "Featured: Recently Added Meals",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(16.dp)
-            )
+    // Initial refresh when screen opens
+    LaunchedEffect(Unit) {
+        currentUser?.let {
+            viewModel.refreshData(it.username)
         }
-        item {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(recipes.filter { it.category == "Breakfast" || it.category == "Dinner" }) { recipe ->
-                    RecipeCard(recipe = recipe, onClick = { selectedRecipe = recipe })
-                }
-            }
-        }
+    }
 
-        val favoriteRecipes = recipes.filter { it.isFavorite }
-        if (favoriteRecipes.isNotEmpty()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
             item {
                 Text(
-                    text = "Your Favorites",
+                    text = "Recently Added Meals",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(16.dp)
                 )
             }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(favoriteRecipes) { recipe ->
-                        RecipeCard(recipe = recipe, onClick = { selectedRecipe = recipe })
+                // Show the 5 most recent recipes regardless of category
+                val recentRecipes = recipes.reversed().take(5)
+                if (recentRecipes.isEmpty()) {
+                    Text("No recipes yet. Add your first meal!", modifier = Modifier.padding(horizontal = 16.dp), color = Color.Gray)
+                } else {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(recentRecipes) { recipe ->
+                            RecipeCard(recipe = recipe, onClick = { selectedRecipe = recipe })
+                        }
                     }
                 }
+            }
+
+            val favoriteRecipes = recipes.filter { it.isFavorite }
+            if (favoriteRecipes.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Your Favorites",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(favoriteRecipes) { recipe ->
+                            RecipeCard(recipe = recipe, onClick = { selectedRecipe = recipe })
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    text = "All Recipes",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+
+            if (recipes.isEmpty()) {
+                item {
+                    Text("Your collection is empty.", modifier = Modifier.padding(16.dp), color = Color.Gray)
+                }
+            } else {
+                // Show all recipes in a list
+                items(recipes.reversed()) { recipe ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        RecipeItemRow(
+                            recipe = recipe,
+                            onDelete = { viewModel.deleteRecipe(recipe) },
+                            onClick = { selectedRecipe = recipe }
+                        )
+                    }
+                }
+            }
+            
+            item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+        
+        // Manual Refresh Button (Simpler alternative to SwipeRefresh for stability)
+        IconButton(
+            onClick = { 
+                currentUser?.let { 
+                    viewModel.refreshData(it.username)
+                    Toast.makeText(context, "Refreshing data...", Toast.LENGTH_SHORT).show()
+                } 
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 8.dp)
+        ) {
+            if (isRefreshing) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -772,13 +861,39 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
     var tags by remember { mutableStateOf(recipe.tags.joinToString(", ")) }
     var selectedCategory by remember { mutableStateOf(recipe.category) }
     var imageUri by remember { mutableStateOf<Uri?>(recipe.imageUri) }
+    var currentTempUri by remember { mutableStateOf<Uri?>(null) }
     var expanded by remember { mutableStateOf(false) }
     val categories by viewModel.categories.collectAsState()
 
-    val launcher = rememberLauncherForActivityResult(
+    // Ensure category selection stays valid if categories load late
+    LaunchedEffect(categories) {
+        if (selectedCategory.isBlank() && categories.isNotEmpty()) {
+            selectedCategory = categories.firstOrNull()?.name ?: "General"
+        }
+    }
+
+    val context = LocalContext.current
+
+    val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) imageUri = uri
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) imageUri = currentTempUri
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Please click Take Photo again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required to take photos.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     val scrollState = rememberScrollState()
@@ -788,13 +903,16 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
         title = { Text("Edit Recipe") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(scrollState),
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") }
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 
                 ExposedDropdownMenuBox(
@@ -825,6 +943,59 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     }
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Select Image")
+                    }
+                    Button(
+                        onClick = { 
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                try {
+                                    val directory = File(context.filesDir, "images")
+                                    if (!directory.exists()) directory.mkdirs()
+                                    val file = File(directory, "temp_camera_${System.currentTimeMillis()}.jpg")
+                                    val uri = FileProvider.getUriForFile(context, "com.example.myrecipe.fileprovider", file)
+                                    currentTempUri = uri
+                                    cameraLauncher.launch(uri)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    Toast.makeText(context, "Error opening camera: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Take Photo")
+                    }
+                }
+
+                imageUri?.let {
+                    AsyncImage(
+                        model = it,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .padding(vertical = 8.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
                 TextField(
                     value = description,
                     onValueChange = { description = it },
@@ -852,19 +1023,6 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     onValueChange = { tags = it },
                     label = { Text("Tags (comma separated)") }
                 )
-                Button(onClick = { launcher.launch("image/*") }) {
-                    Text(if (imageUri == null) "Pick Image" else "Change Image")
-                }
-                imageUri?.let {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(100.dp)
-                            .padding(top = 8.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                }
             }
         },
         confirmButton = {
@@ -909,12 +1067,38 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
     val categories by viewModel.categories.collectAsState()
     var selectedCategory by remember { mutableStateOf(categories.firstOrNull()?.name ?: "General") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
+    var currentTempUri by remember { mutableStateOf<Uri?>(null) }
     var expanded by remember { mutableStateOf(false) }
 
-    val launcher = rememberLauncherForActivityResult(
+    // Update selection once categories load from DB
+    LaunchedEffect(categories) {
+        if (selectedCategory == "General" && categories.isNotEmpty()) {
+            selectedCategory = categories.first().name
+        }
+    }
+
+    val context = LocalContext.current
+
+    val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        imageUri = uri
+        if (uri != null) imageUri = uri
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) imageUri = currentTempUri
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Please click Take Photo again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required to take photos.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     val scrollState = rememberScrollState()
@@ -924,13 +1108,16 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
         title = { Text("Add New Recipe") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(scrollState),
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") }
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 
                 ExposedDropdownMenuBox(
@@ -961,6 +1148,59 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                     }
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Select Image")
+                    }
+                    Button(
+                        onClick = { 
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                try {
+                                    val directory = File(context.filesDir, "images")
+                                    if (!directory.exists()) directory.mkdirs()
+                                    val file = File(directory, "temp_camera_${System.currentTimeMillis()}.jpg")
+                                    val uri = FileProvider.getUriForFile(context, "com.example.myrecipe.fileprovider", file)
+                                    currentTempUri = uri
+                                    cameraLauncher.launch(uri)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    Toast.makeText(context, "Error opening camera: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Take Photo")
+                    }
+                }
+
+                imageUri?.let {
+                    AsyncImage(
+                        model = it,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .padding(vertical = 8.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
                 TextField(
                     value = description,
                     onValueChange = { description = it },
@@ -988,19 +1228,6 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                     onValueChange = { tags = it },
                     label = { Text("Tags (comma separated)") }
                 )
-                Button(onClick = { launcher.launch("image/*") }) {
-                    Text(if (imageUri == null) "Pick Image" else "Image Selected")
-                }
-                imageUri?.let {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(100.dp)
-                            .padding(top = 8.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                }
             }
         },
         confirmButton = {

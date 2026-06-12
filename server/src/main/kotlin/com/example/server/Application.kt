@@ -37,6 +37,7 @@ data class UserDTO(val username: String, val password: String)
 data class CategoryDTO(val id: String, val name: String, val owner: String)
 
 fun main() {
+    initDatabase() // Initialize DB before starting server
     val port = System.getenv("PORT")?.toInt() ?: 8080
     embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
         .start(wait = true)
@@ -47,10 +48,11 @@ fun Application.module() {
         json(Json {
             prettyPrint = true
             isLenient = true
+            ignoreUnknownKeys = true
         })
     }
     
-    initDatabase()
+    // DB already initialized in main
 
     routing {
         get("/") {
@@ -70,9 +72,10 @@ fun Application.module() {
 
         post("/signup") {
             val user = call.receive<UserDTO>()
+            val cleanUsername = user.username.trim().lowercase()
             transaction {
                 Users.insert {
-                    it[Users.username] = user.username
+                    it[Users.username] = cleanUsername
                     it[Users.password] = user.password
                 }
             }
@@ -81,8 +84,9 @@ fun Application.module() {
 
         post("/login") {
             val credentials = call.receive<UserDTO>()
+            val cleanUsername = credentials.username.trim().lowercase()
             val userRow = transaction {
-                Users.selectAll().where { (Users.username eq credentials.username) and (Users.password eq credentials.password) }
+                Users.selectAll().where { (Users.username.lowerCase() eq cleanUsername) and (Users.password eq credentials.password) }
                     .singleOrNull()
             }
             if (userRow != null) {
@@ -94,9 +98,9 @@ fun Application.module() {
 
         route("/recipes") {
             get("/{owner}") {
-                val owner = call.parameters["owner"] ?: return@get call.respond(emptyList<RecipeDTO>())
+                val owner = call.parameters["owner"]?.lowercase() ?: return@get call.respond(emptyList<RecipeDTO>())
                 val recipesList = transaction {
-                    Recipes.selectAll().where { Recipes.owner eq owner }.map { row ->
+                    Recipes.selectAll().where { Recipes.owner.lowerCase() eq owner }.map { row ->
                         RecipeDTO(
                             id = row[Recipes.id],
                             title = row[Recipes.title],
@@ -118,18 +122,34 @@ fun Application.module() {
             post {
                 val recipe = call.receive<RecipeDTO>()
                 transaction {
-                    Recipes.insert {
-                        it[Recipes.id] = recipe.id
-                        it[Recipes.title] = recipe.title
-                        it[Recipes.description] = recipe.description
-                        it[Recipes.ingredients] = recipe.ingredients.joinToString("|")
-                        it[Recipes.instructions] = recipe.instructions.joinToString("|")
-                        it[Recipes.imageUri] = recipe.imageUri
-                        it[Recipes.rating] = recipe.rating
-                        it[Recipes.tags] = recipe.tags.joinToString("|")
-                        it[Recipes.category] = recipe.category
-                        it[Recipes.isFavorite] = recipe.isFavorite
-                        it[Recipes.owner] = recipe.owner
+                    val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
+                    if (exists) {
+                        Recipes.update({ Recipes.id eq recipe.id }) {
+                            it[title] = recipe.title
+                            it[description] = recipe.description
+                            it[ingredients] = recipe.ingredients.joinToString("|")
+                            it[instructions] = recipe.instructions.joinToString("|")
+                            it[imageUri] = recipe.imageUri
+                            it[rating] = recipe.rating
+                            it[tags] = recipe.tags.joinToString("|")
+                            it[category] = recipe.category
+                            it[isFavorite] = recipe.isFavorite
+                            it[owner] = recipe.owner
+                        }
+                    } else {
+                        Recipes.insert {
+                            it[id] = recipe.id
+                            it[title] = recipe.title
+                            it[description] = recipe.description
+                            it[ingredients] = recipe.ingredients.joinToString("|")
+                            it[instructions] = recipe.instructions.joinToString("|")
+                            it[imageUri] = recipe.imageUri
+                            it[rating] = recipe.rating
+                            it[tags] = recipe.tags.joinToString("|")
+                            it[category] = recipe.category
+                            it[isFavorite] = recipe.isFavorite
+                            it[owner] = recipe.owner
+                        }
                     }
                 }
                 call.respond(mapOf("status" to "success"))
@@ -158,10 +178,18 @@ fun Application.module() {
             post {
                 val cat = call.receive<CategoryDTO>()
                 transaction {
-                    Categories.insert {
-                        it[Categories.id] = cat.id
-                        it[Categories.name] = cat.name
-                        it[Categories.owner] = cat.owner
+                    val exists = Categories.selectAll().where { Categories.id eq cat.id }.any()
+                    if (exists) {
+                        Categories.update({ Categories.id eq cat.id }) {
+                            it[name] = cat.name
+                            it[owner] = cat.owner
+                        }
+                    } else {
+                        Categories.insert {
+                            it[id] = cat.id
+                            it[name] = cat.name
+                            it[owner] = cat.owner
+                        }
                     }
                 }
                 call.respond(mapOf("status" to "success"))

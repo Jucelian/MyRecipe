@@ -43,13 +43,21 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
             errorMessage = null
             if (isSignUp) {
                 authViewModel.signup(username, password) { success ->
-                    isLoading = false
-                    if (success) onLoginSuccess() else errorMessage = "Signup failed. Try a different username."
+                    if (success) {
+                        onLoginSuccess()
+                    } else {
+                        isLoading = false
+                        errorMessage = "Signup failed. Try a different username."
+                    }
                 }
             } else {
                 authViewModel.login(username, password) { success ->
-                    isLoading = false
-                    if (success) onLoginSuccess() else errorMessage = "Invalid username or password"
+                    if (success) {
+                        onLoginSuccess()
+                    } else {
+                        isLoading = false
+                        errorMessage = "Invalid username or password"
+                    }
                 }
             }
         }
