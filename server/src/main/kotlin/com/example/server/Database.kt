@@ -37,16 +37,22 @@ object Categories : Table("categories") {
 
 fun initDatabase() {
     val cloudDbUrl = System.getenv("DATABASE_URL")
-    if (cloudDbUrl != null) {
-        // Use PostgreSQL for Cloud (Render/Supabase)
-        Database.connect(cloudDbUrl, driver = "org.postgresql.Driver")
-    } else {
-        // Use H2 for Local testing
-        val dbPath = System.getenv("DATABASE_PATH") ?: "./data/recipes"
-        Database.connect("jdbc:h2:file:$dbPath;DB_CLOSE_DELAY=-1;", driver = "org.h2.Driver")
-    }
+    try {
+        if (cloudDbUrl != null) {
+            println("Connecting to Cloud Database...")
+            Database.connect(cloudDbUrl, driver = "org.postgresql.Driver")
+        } else {
+            println("Connecting to Local Database...")
+            val dbPath = System.getenv("DATABASE_PATH") ?: "./data/recipes"
+            Database.connect("jdbc:h2:file:$dbPath;DB_CLOSE_DELAY=-1;", driver = "org.h2.Driver")
+        }
 
-    transaction {
-        SchemaUtils.create(Recipes, Users, Categories)
+        transaction {
+            SchemaUtils.create(Recipes, Users, Categories)
+        }
+        println("Database initialized successfully!")
+    } catch (e: Exception) {
+        println("DATABASE ERROR: ${e.message}")
+        e.printStackTrace()
     }
 }
