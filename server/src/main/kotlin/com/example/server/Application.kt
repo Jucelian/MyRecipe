@@ -1,5 +1,6 @@
 package com.example.server
 
+import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -57,7 +58,14 @@ fun Application.module() {
         }
         
         get("/health") {
-            call.respond(mapOf("status" to "up", "database" to "checked"))
+            try {
+                transaction {
+                    Users.selectAll().limit(1).toList()
+                }
+                call.respond(mapOf("status" to "up", "database" to "connected"))
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to e.message))
+            }
         }
 
         post("/signup") {
