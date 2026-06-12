@@ -3,6 +3,9 @@ FROM gradle:8-jdk17 AS build
 COPY --chown=gradle:gradle . /home/gradle/src
 WORKDIR /home/gradle/src
 
+# Fix permissions for gradlew
+RUN chmod +x gradlew
+
 # Build the server shadow jar (or executable)
 RUN ./gradlew :server:installDist --no-daemon
 
