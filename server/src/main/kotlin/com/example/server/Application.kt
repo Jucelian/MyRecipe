@@ -36,7 +36,8 @@ data class UserDTO(val username: String, val password: String)
 data class CategoryDTO(val id: String, val name: String, val owner: String)
 
 fun main() {
-    embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
+    val port = System.getenv("PORT")?.toInt() ?: 8080
+    embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
         .start(wait = true)
 }
 
