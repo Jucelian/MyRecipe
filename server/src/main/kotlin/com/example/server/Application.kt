@@ -52,6 +52,14 @@ fun Application.module() {
     initDatabase()
 
     routing {
+        get("/") {
+            call.respondText("Server is running!")
+        }
+        
+        get("/health") {
+            call.respond(mapOf("status" to "up", "database" to "checked"))
+        }
+
         post("/signup") {
             val user = call.receive<UserDTO>()
             transaction {
