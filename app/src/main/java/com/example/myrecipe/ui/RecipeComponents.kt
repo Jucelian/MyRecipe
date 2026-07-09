@@ -52,7 +52,7 @@ fun RecipeApp(
 
     LaunchedEffect(currentUser) {
         currentUser?.let {
-            viewModel.refreshData(it.username)
+            viewModel.setCurrentOwner(it.username)
         }
     }
 
@@ -152,7 +152,7 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
 
     LaunchedEffect(Unit) {
         currentUser?.let {
-            viewModel.refreshData(it.username)
+            viewModel.setCurrentOwner(it.username)
         }
     }
 

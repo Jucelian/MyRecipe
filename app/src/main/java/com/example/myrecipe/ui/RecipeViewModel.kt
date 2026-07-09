@@ -29,6 +29,14 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     private val currentOwner = MutableStateFlow("")
+
+    fun setCurrentOwner(owner: String) {
+        val cleanOwner = owner.trim().lowercase()
+        if (currentOwner.value != cleanOwner) {
+            currentOwner.value = cleanOwner
+            refreshData(cleanOwner)
+        }
+    }
     
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing

@@ -31,12 +31,16 @@ class MainActivity : ComponentActivity() {
                     val user = viewModel.currentUser.value
                     LaunchedEffect(user) {
                         user?.let {
-                            recipeViewModel.refreshData(it.username)
+                            recipeViewModel.setCurrentOwner(it.username)
                         }
                     }
                     RecipeApp(viewModel = recipeViewModel, authViewModel = viewModel)
                 } else {
-                    LoginScreen(authViewModel = viewModel, onLoginSuccess = { })
+                    LoginScreen(authViewModel = viewModel, onLoginSuccess = { 
+                        viewModel.currentUser.value?.let { user ->
+                            recipeViewModel.setCurrentOwner(user.username)
+                        }
+                    })
                 }
             }
         }
