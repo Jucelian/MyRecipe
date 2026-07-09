@@ -49,7 +49,7 @@ fun initDatabase() {
         }
 
         transaction {
-            SchemaUtils.create(Recipes, Users, Categories)
+            SchemaUtils.createMissingTablesAndColumns(Recipes, Users, Categories)
         }
         println("Database initialized successfully!")
     } catch (e: Exception) {
