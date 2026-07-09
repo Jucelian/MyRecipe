@@ -11,7 +11,7 @@ import com.example.myrecipe.ui.RecipeApp
 import com.example.myrecipe.ui.RecipeViewModel
 import com.example.myrecipe.ui.theme.MyRecipeTheme
 
-class MainAppActivity : ComponentActivity() {
+class MainActivity : ComponentActivity() {
     private var authViewModel: AuthViewModel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
