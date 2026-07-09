@@ -23,6 +23,10 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MyRecipe"
-include(":app")
 include(":server")
+
+// Only include app if not building for server-only environments like Render
+if (System.getenv("RENDER") == null && System.getenv("SERVER_ONLY") == null) {
+    include(":app")
+}
  
