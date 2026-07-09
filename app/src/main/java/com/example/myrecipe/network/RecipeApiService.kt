@@ -3,6 +3,7 @@ package com.example.myrecipe.network
 import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.User
+import okhttp3.MultipartBody
 import retrofit2.http.*
 
 interface RecipeApiService {
@@ -11,6 +12,10 @@ interface RecipeApiService {
 
     @POST("login")
     suspend fun login(@Body user: User): Map<String, String>
+
+    @Multipart
+    @POST("upload")
+    suspend fun uploadImage(@Part image: MultipartBody.Part): Map<String, String>
 
     @GET("recipes/{owner}")
     suspend fun getRecipes(@Path("owner") owner: String): List<Recipe>

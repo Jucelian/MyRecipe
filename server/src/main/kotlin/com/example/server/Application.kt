@@ -1,14 +1,17 @@
 package com.example.server
 
 import io.ktor.http.*
+import io.ktor.http.content.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
+import io.ktor.server.http.content.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.*
@@ -53,10 +56,37 @@ fun Application.module() {
     }
     
     // DB already initialized in main
+    val uploadDir = File("uploads")
+    if (!uploadDir.exists()) uploadDir.mkdirs()
 
     routing {
+        staticFiles("/uploads", uploadDir)
+
         get("/") {
             call.respondText("Server is running!")
+        }
+
+        post("/upload") {
+            val multipart = call.receiveMultipart()
+            var fileName = ""
+            multipart.forEachPart { part ->
+                if (part is PartData.FileItem) {
+                    val name = "img_${System.currentTimeMillis()}_${part.originalFileName}"
+                    val file = File(uploadDir, name)
+                    part.streamProvider().use { input ->
+                        file.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    fileName = name
+                }
+                part.dispose()
+            }
+            if (fileName.isNotEmpty()) {
+                call.respond(mapOf("url" to "/uploads/$fileName"))
+            } else {
+                call.respond(HttpStatusCode.BadRequest, "No file uploaded")
+            }
         }
         
         get("/health") {

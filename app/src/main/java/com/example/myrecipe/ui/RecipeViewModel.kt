@@ -98,9 +98,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         currentOwner.value = owner
         viewModelScope.launch {
             _isRefreshing.value = true
-            // First push any local changes
-            repository.syncPendingChanges(owner)
-            // Then fetch latest from server
+            // Fetch latest from server (which also pushes local changes)
             repository.refreshData(owner)
             _isRefreshing.value = false
         }
@@ -116,7 +114,6 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 recipe
             }
             repository.addRecipe(processedRecipe)
-            repository.syncPendingChanges(processedRecipe.owner)
         }
     }
 
@@ -130,7 +127,6 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 recipe
             }
             repository.updateRecipe(processedRecipe)
-            repository.syncPendingChanges(processedRecipe.owner)
         }
     }
 

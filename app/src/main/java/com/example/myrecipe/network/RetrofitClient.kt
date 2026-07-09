@@ -12,7 +12,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
-    private const val BASE_URL = "https://my-recipe-server-t7vb.onrender.com/"
+    const val BASE_URL = "https://my-recipe-server-t7vb.onrender.com/"
 
     private val gson = GsonBuilder()
         .registerTypeAdapter(Uri::class.java, JsonSerializer<Uri> { src, _, _ ->
