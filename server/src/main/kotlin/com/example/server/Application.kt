@@ -102,10 +102,9 @@ fun Application.module() {
 
         post("/signup") {
             val user = call.receive<UserDTO>()
-            val cleanUsername = user.username.trim().lowercase()
             transaction {
                 Users.insert {
-                    it[Users.username] = cleanUsername
+                    it[Users.username] = user.username
                     it[Users.password] = user.password
                 }
             }
@@ -114,9 +113,8 @@ fun Application.module() {
 
         post("/login") {
             val credentials = call.receive<UserDTO>()
-            val cleanUsername = credentials.username.trim().lowercase()
             val userRow = transaction {
-                Users.selectAll().where { (Users.username.lowerCase() eq cleanUsername) and (Users.password eq credentials.password) }
+                Users.selectAll().where { (Users.username eq credentials.username) and (Users.password eq credentials.password) }
                     .singleOrNull()
             }
             if (userRow != null) {
@@ -128,9 +126,9 @@ fun Application.module() {
 
         route("/recipes") {
             get("/{owner}") {
-                val owner = call.parameters["owner"]?.lowercase() ?: return@get call.respond(emptyList<RecipeDTO>())
+                val owner = call.parameters["owner"] ?: return@get call.respond(emptyList<RecipeDTO>())
                 val recipesList = transaction {
-                    Recipes.selectAll().where { Recipes.owner.lowerCase() eq owner }.map { row ->
+                    Recipes.selectAll().where { Recipes.owner eq owner }.map { row ->
                         RecipeDTO(
                             id = row[Recipes.id],
                             title = row[Recipes.title],

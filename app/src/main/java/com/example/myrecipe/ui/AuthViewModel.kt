@@ -46,14 +46,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun signup(username: String, password: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
-                val cleanUsername = username.trim().lowercase()
-                val user = User(cleanUsername, password)
+                val user = User(username, password)
                 val response = RetrofitClient.instance.signup(user)
                 if (response["status"] == "success") {
                     _currentUser.value = user
                     _isLoggedIn.value = true
                     resetInactivityTimer()
-                    saveCredentials(cleanUsername)
+                    saveCredentials(username)
                     onResult(true)
                 } else {
                     onResult(false)
@@ -67,14 +66,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun login(username: String, password: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
-                val cleanUsername = username.trim().lowercase()
-                val user = User(cleanUsername, password)
+                val user = User(username, password)
                 val response = RetrofitClient.instance.login(user)
                 if (response["status"] == "success") {
                     _currentUser.value = user
                     _isLoggedIn.value = true
                     resetInactivityTimer()
-                    saveCredentials(cleanUsername)
+                    saveCredentials(username)
                     onResult(true)
                 } else {
                     onResult(false)
