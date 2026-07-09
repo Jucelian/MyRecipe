@@ -49,12 +49,13 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             combine(
                 repository.getUnsyncedRecipesFlow(),
-                repository.getUnsyncedCategoriesFlow()
-            ) { unsyncedRecipes, unsyncedCategories ->
-                unsyncedRecipes.isNotEmpty() || unsyncedCategories.isNotEmpty()
-            }.collect { hasUnsynced ->
-                if (hasUnsynced && currentOwner.value.isNotBlank()) {
-                    repository.syncPendingChanges(currentOwner.value)
+                repository.getUnsyncedCategoriesFlow(),
+                currentOwner
+            ) { unsyncedRecipes, unsyncedCategories, owner ->
+                (unsyncedRecipes.isNotEmpty() || unsyncedCategories.isNotEmpty()) to owner
+            }.collect { (hasUnsynced, owner) ->
+                if (hasUnsynced && owner.isNotBlank()) {
+                    repository.syncPendingChanges(owner)
                 }
             }
         }
@@ -119,12 +120,13 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun addRecipe(recipe: Recipe) {
         viewModelScope.launch {
+            val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
             val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
                 saveImageToInternalStorage(recipe.imageUri)?.let { internalUri ->
-                    recipe.copy(imageUri = internalUri)
-                } ?: recipe
+                    recipe.copy(imageUri = internalUri, owner = owner)
+                } ?: recipe.copy(owner = owner)
             } else {
-                recipe
+                recipe.copy(owner = owner)
             }
             repository.addRecipe(processedRecipe)
         }
@@ -132,12 +134,13 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateRecipe(recipe: Recipe) {
         viewModelScope.launch {
+            val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
             val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
                 saveImageToInternalStorage(recipe.imageUri)?.let { internalUri ->
-                    recipe.copy(imageUri = internalUri)
-                } ?: recipe
+                    recipe.copy(imageUri = internalUri, owner = owner)
+                } ?: recipe.copy(owner = owner)
             } else {
-                recipe
+                recipe.copy(owner = owner)
             }
             repository.updateRecipe(processedRecipe)
         }
