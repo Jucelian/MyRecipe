@@ -23,29 +23,24 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _savedUsername = mutableStateOf(sharedPreferences.getString("saved_username", "") ?: "")
     val savedUsername: State<String> = _savedUsername
 
-    private var lastActivityTime: Long
-        get() = sharedPreferences.getLong("last_activity_time", System.currentTimeMillis())
-        set(value) = sharedPreferences.edit().putLong("last_activity_time", value).apply()
+    private val INACTIVITY_TIMEOUT = 1800000L // 30 minutes
 
-    private val INACTIVITY_TIMEOUT = 30 * 60 * 1000L // 30 minutes
-
-    init {
-        startInactivityChecker()
+    fun resetInactivityTimer() {
+        sharedPreferences.edit().putLong("last_activity_time", System.currentTimeMillis()).apply()
     }
 
-    private fun startInactivityChecker() {
+    fun initSession() {
         viewModelScope.launch {
             while (true) {
-                delay(10000) // Check every 10 seconds
-                if (_isLoggedIn.value && System.currentTimeMillis() - lastActivityTime > INACTIVITY_TIMEOUT) {
+                delay(10000)
+                val loggedIn = _isLoggedIn.value
+                val currentTime = System.currentTimeMillis()
+                val lastActivity = sharedPreferences.getLong("last_activity_time", 0L)
+                if (loggedIn && (currentTime - lastActivity > INACTIVITY_TIMEOUT)) {
                     logout()
                 }
             }
         }
-    }
-
-    fun resetInactivityTimer() {
-        lastActivityTime = System.currentTimeMillis()
     }
 
     fun signup(username: String, password: String, onResult: (Boolean) -> Unit) {
@@ -64,7 +59,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     onResult(false)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 onResult(false)
             }
         }
@@ -86,16 +80,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     onResult(false)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 onResult(false)
             }
         }
     }
 
     private fun saveCredentials(username: String) {
-        sharedPreferences.edit()
-            .putString("saved_username", username)
-            .apply()
+        sharedPreferences.edit().putString("saved_username", username).apply()
         _savedUsername.value = username
     }
 

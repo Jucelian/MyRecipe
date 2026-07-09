@@ -60,7 +60,9 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
 
     routing {
-        staticFiles("/uploads", uploadDir)
+        static("/uploads") {
+            files(uploadDir)
+        }
 
         get("/") {
             call.respondText("Server is running!")
