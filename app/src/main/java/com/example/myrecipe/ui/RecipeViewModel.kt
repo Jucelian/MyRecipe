@@ -31,8 +31,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val currentOwner = MutableStateFlow("")
 
     fun setCurrentOwner(owner: String) {
-        if (currentOwner.value != owner) {
-            currentOwner.value = owner
+        currentOwner.value = owner
+        if (owner.isNotBlank()) {
             refreshData(owner)
         }
     }
@@ -47,8 +47,13 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun startAutoSync() {
         viewModelScope.launch {
-            repository.getUnsyncedRecipesFlow().collect { unsynced ->
-                if (unsynced.isNotEmpty() && currentOwner.value.isNotBlank()) {
+            combine(
+                repository.getUnsyncedRecipesFlow(),
+                repository.getUnsyncedCategoriesFlow()
+            ) { unsyncedRecipes, unsyncedCategories ->
+                unsyncedRecipes.isNotEmpty() || unsyncedCategories.isNotEmpty()
+            }.collect { hasUnsynced ->
+                if (hasUnsynced && currentOwner.value.isNotBlank()) {
                     repository.syncPendingChanges(currentOwner.value)
                 }
             }
@@ -102,6 +107,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     fun refreshData(owner: String) {
+        if (owner.isBlank() || _isRefreshing.value) return
         currentOwner.value = owner
         viewModelScope.launch {
             _isRefreshing.value = true

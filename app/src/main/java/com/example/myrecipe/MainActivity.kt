@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
                     }
                     RecipeApp(viewModel = recipeViewModel, authViewModel = viewModel)
                 } else {
+                    LaunchedEffect(Unit) {
+                        recipeViewModel.setCurrentOwner("")
+                    }
                     LoginScreen(authViewModel = viewModel, onLoginSuccess = { 
                         viewModel.currentUser.value?.let { user ->
                             recipeViewModel.setCurrentOwner(user.username)

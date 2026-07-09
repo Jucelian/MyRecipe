@@ -8,5 +8,6 @@ data class Category(
     @PrimaryKey
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
-    val owner: String = ""
+    val owner: String = "",
+    val isSynced: Boolean = true
 )
