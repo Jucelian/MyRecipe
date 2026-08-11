@@ -9,11 +9,11 @@ object Recipes : Table("recipes") {
     val description = text("description").nullable()
     val ingredients = text("ingredients").nullable()
     val instructions = text("instructions").nullable()
-    val imageUri = varchar("imageuri", 1024).nullable()
+    val imageUri = varchar("imageUri", 1024).nullable()
     val rating = double("rating").nullable()
     val tags = text("tags").nullable()
     val category = varchar("category", 100).nullable()
-    val isFavorite = bool("isfavorite")
+    val isFavorite = bool("isFavorite")
     val owner = varchar("owner", 50)
 
     override val primaryKey = PrimaryKey(id)

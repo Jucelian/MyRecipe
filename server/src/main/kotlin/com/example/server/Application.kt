@@ -170,6 +170,7 @@ fun Application.module() {
                     val recipe = call.receive<RecipeDTO>()
                     println("Received recipe for sync: ${recipe.title} (ID: ${recipe.id})")
                     transaction {
+                        println("Attempting to insert/update recipe: ${recipe.id}")
                         val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
                         if (exists) {
                             Recipes.update({ Recipes.id eq recipe.id }) {
@@ -184,6 +185,7 @@ fun Application.module() {
                                 it[isFavorite] = recipe.isFavorite
                                 it[owner] = recipe.owner
                             }
+                            println("Recipe updated successfully in DB")
                         } else {
                             Recipes.insert {
                                 it[id] = recipe.id
@@ -198,6 +200,7 @@ fun Application.module() {
                                 it[isFavorite] = recipe.isFavorite
                                 it[owner] = recipe.owner
                             }
+                            println("Recipe inserted successfully in DB")
                         }
                     }
                     call.respond(mapOf("status" to "success"))
