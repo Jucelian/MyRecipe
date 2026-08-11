@@ -2,10 +2,12 @@ package com.example.myrecipe.ui
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myrecipe.data.AppDatabase
 import com.example.myrecipe.data.RecipeRepository
+import com.example.myrecipe.data.SyncWorker
 import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.network.RetrofitClient
@@ -31,14 +33,25 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val currentOwner = MutableStateFlow("")
 
     fun setCurrentOwner(owner: String) {
+        if (currentOwner.value == owner) return
         currentOwner.value = owner
         if (owner.isNotBlank()) {
+            SyncWorker.startPeriodicSync(getApplication(), owner)
             refreshData(owner)
+        } else {
+            SyncWorker.stopSync(getApplication())
         }
     }
     
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
 
     init {
         startAutoSync()
@@ -55,18 +68,29 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 (unsyncedRecipes.isNotEmpty() || unsyncedCategories.isNotEmpty()) to owner
             }.collect { (hasUnsynced, owner) ->
                 if (hasUnsynced && owner.isNotBlank()) {
-                    repository.syncPendingChanges(owner)
+                    try {
+                        repository.syncPendingChanges(owner)
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Background sync failed: ${e.message}"
+                    }
                 }
             }
         }
     }
 
+    private var autoRefreshJob: kotlinx.coroutines.Job? = null
+
     private fun startAutoRefresh() {
-        viewModelScope.launch {
+        autoRefreshJob?.cancel()
+        autoRefreshJob = viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(60000) // Auto-refresh every minute
+                kotlinx.coroutines.delay(30000) // Auto-refresh every 30 seconds when app is active
                 if (currentOwner.value.isNotBlank()) {
-                    repository.refreshData(currentOwner.value)
+                    try {
+                        repository.refreshData(currentOwner.value)
+                    } catch (e: Exception) {
+                        // Silent failure for auto-refresh
+                    }
                 }
             }
         }
@@ -74,6 +98,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val recipes: StateFlow<List<Recipe>> = currentOwner.flatMapLatest { owner ->
+        Log.d("RecipeViewModel", "Observing recipes for owner: $owner")
         repository.getRecipes(owner)
     }.stateIn(
         scope = viewModelScope,
@@ -82,25 +107,9 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val categories: StateFlow<List<Category>> = combine(
-        currentOwner.flatMapLatest { owner -> repository.getCategories(owner) },
-        recipes
-    ) { dbCategories, allRecipes ->
-        // Extract unique category names from existing recipes
-        val recipeCategoryNames = allRecipes.map { it.category }
-            .filter { it.isNotBlank() }
-            .distinct()
-
-        // Get names of categories already in the DB
-        val dbCategoryNames = dbCategories.map { it.name }.toSet()
-
-        // Create virtual categories for any recipe category not in the DB
-        val additionalCategories = recipeCategoryNames
-            .filter { it !in dbCategoryNames }
-            .map { Category(name = it, owner = currentOwner.value) }
-
-        // Combine and sort
-        (dbCategories + additionalCategories).distinctBy { it.name }.sortedBy { it.name }
+    val categories: StateFlow<List<Category>> = currentOwner.flatMapLatest { owner ->
+        Log.d("RecipeViewModel", "Observing categories for owner: $owner")
+        repository.getCategories(owner)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -112,37 +121,54 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         currentOwner.value = owner
         viewModelScope.launch {
             _isRefreshing.value = true
-            // Fetch latest from server (which also pushes local changes)
-            repository.refreshData(owner)
-            _isRefreshing.value = false
+            try {
+                // Fetch latest from server (which also pushes local changes)
+                repository.refreshData(owner)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to sync data: ${e.message}"
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 
     fun addRecipe(recipe: Recipe) {
         viewModelScope.launch {
-            val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
-            val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
-                saveImageToInternalStorage(recipe.imageUri)?.let { internalUri ->
+            try {
+                val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
+                val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
+                    val internalUri = saveImageToInternalStorage(recipe.imageUri)
                     recipe.copy(imageUri = internalUri, owner = owner)
-                } ?: recipe.copy(owner = owner)
-            } else {
-                recipe.copy(owner = owner)
+                } else {
+                    recipe.copy(owner = owner)
+                }
+                
+                // 1. Insert locally first
+                repository.addRecipe(processedRecipe)
+                
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add recipe locally: ${e.message}"
             }
-            repository.addRecipe(processedRecipe)
         }
     }
 
     fun updateRecipe(recipe: Recipe) {
         viewModelScope.launch {
-            val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
-            val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
-                saveImageToInternalStorage(recipe.imageUri)?.let { internalUri ->
+            try {
+                val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
+                val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
+                    val internalUri = saveImageToInternalStorage(recipe.imageUri)
                     recipe.copy(imageUri = internalUri, owner = owner)
-                } ?: recipe.copy(owner = owner)
-            } else {
-                recipe.copy(owner = owner)
+                } else {
+                    recipe.copy(owner = owner)
+                }
+                
+                // 1. Update locally first
+                repository.updateRecipe(processedRecipe)
+                
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to update recipe locally: ${e.message}"
             }
-            repository.updateRecipe(processedRecipe)
         }
     }
 
@@ -170,33 +196,45 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deleteRecipe(recipe: Recipe) {
         viewModelScope.launch {
-            // Delete local image file if it exists
-            recipe.imageUri?.let { uri ->
-                if (uri.scheme == "file") {
-                    try {
-                        val file = File(uri.path ?: "")
-                        val internalDir = getApplication<Application>().filesDir
-                        if (file.exists() && file.absolutePath.startsWith(internalDir.absolutePath)) {
-                            file.delete()
+            try {
+                // Delete local image file if it exists
+                recipe.imageUri?.let { uri ->
+                    if (uri.scheme == "file") {
+                        try {
+                            val file = File(uri.path ?: "")
+                            val internalDir = getApplication<Application>().filesDir
+                            if (file.exists() && file.absolutePath.startsWith(internalDir.absolutePath)) {
+                                file.delete()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                         }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
                     }
                 }
+                repository.deleteRecipe(recipe)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to delete recipe: ${e.message}"
             }
-            repository.deleteRecipe(recipe)
         }
     }
 
     fun addCategory(name: String, owner: String) {
         viewModelScope.launch {
-            repository.addCategory(Category(name = name, owner = owner))
+            try {
+                repository.addCategory(Category(name = name, owner = owner))
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add category: ${e.message}"
+            }
         }
     }
 
     fun deleteCategory(category: Category) {
         viewModelScope.launch {
-            repository.deleteCategory(category)
+            try {
+                repository.deleteCategory(category)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to delete category: ${e.message}"
+            }
         }
     }
 

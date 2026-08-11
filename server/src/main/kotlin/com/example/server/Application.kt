@@ -21,23 +21,27 @@ import org.jetbrains.exposed.sql.transactions.transaction
 @Serializable
 data class RecipeDTO(
     val id: String,
-    val title: String,
-    val description: String,
-    val ingredients: List<String>,
-    val instructions: List<String>,
-    val imageUri: String?,
-    val rating: Double,
-    val tags: List<String>,
-    val category: String,
-    val isFavorite: Boolean,
-    val owner: String
+    val title: String = "",
+    val description: String? = "",
+    val ingredients: List<String>? = emptyList(),
+    val instructions: List<String>? = emptyList(),
+    val imageUri: String? = null,
+    val rating: Double? = 0.0,
+    val tags: List<String>? = emptyList(),
+    val category: String? = "General",
+    val isFavorite: Boolean = false,
+    val owner: String = ""
 )
 
 @Serializable
 data class UserDTO(val username: String, val password: String)
 
 @Serializable
-data class CategoryDTO(val id: String, val name: String, val owner: String)
+data class CategoryDTO(
+    val id: String,
+    val name: String = "",
+    val owner: String = ""
+)
 
 fun main() {
     initDatabase() // Initialize DB before starting server
@@ -61,6 +65,20 @@ fun Application.module() {
 
     routing {
         staticFiles("/uploads", uploadDir)
+
+        get("/debug/db") {
+            try {
+                val recipeCount = transaction { Recipes.selectAll().count() }
+                val categoryCount = transaction { Categories.selectAll().count() }
+                call.respond(mapOf(
+                    "recipes_count" to recipeCount.toString(),
+                    "categories_count" to categoryCount.toString(),
+                    "database" to "connected"
+                ))
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Unknown DB error")))
+            }
+        }
 
         get("/") {
             call.respondText("Server is running!")
@@ -133,11 +151,11 @@ fun Application.module() {
                             id = row[Recipes.id],
                             title = row[Recipes.title],
                             description = row[Recipes.description],
-                            ingredients = row[Recipes.ingredients].split("|").filter { it.isNotEmpty() },
-                            instructions = row[Recipes.instructions].split("|").filter { it.isNotEmpty() },
+                            ingredients = row[Recipes.ingredients]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
+                            instructions = row[Recipes.instructions]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
                             imageUri = row[Recipes.imageUri],
                             rating = row[Recipes.rating],
-                            tags = row[Recipes.tags].split("|").filter { it.isNotEmpty() },
+                            tags = row[Recipes.tags]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
                             category = row[Recipes.category],
                             isFavorite = row[Recipes.isFavorite],
                             owner = row[Recipes.owner]
@@ -148,39 +166,46 @@ fun Application.module() {
             }
 
             post {
-                val recipe = call.receive<RecipeDTO>()
-                transaction {
-                    val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
-                    if (exists) {
-                        Recipes.update({ Recipes.id eq recipe.id }) {
-                            it[title] = recipe.title
-                            it[description] = recipe.description
-                            it[ingredients] = recipe.ingredients.joinToString("|")
-                            it[instructions] = recipe.instructions.joinToString("|")
-                            it[imageUri] = recipe.imageUri
-                            it[rating] = recipe.rating
-                            it[tags] = recipe.tags.joinToString("|")
-                            it[category] = recipe.category
-                            it[isFavorite] = recipe.isFavorite
-                            it[owner] = recipe.owner
-                        }
-                    } else {
-                        Recipes.insert {
-                            it[id] = recipe.id
-                            it[title] = recipe.title
-                            it[description] = recipe.description
-                            it[ingredients] = recipe.ingredients.joinToString("|")
-                            it[instructions] = recipe.instructions.joinToString("|")
-                            it[imageUri] = recipe.imageUri
-                            it[rating] = recipe.rating
-                            it[tags] = recipe.tags.joinToString("|")
-                            it[category] = recipe.category
-                            it[isFavorite] = recipe.isFavorite
-                            it[owner] = recipe.owner
+                try {
+                    val recipe = call.receive<RecipeDTO>()
+                    println("Received recipe for sync: ${recipe.title} (ID: ${recipe.id})")
+                    transaction {
+                        val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
+                        if (exists) {
+                            Recipes.update({ Recipes.id eq recipe.id }) {
+                                it[title] = recipe.title
+                                it[description] = recipe.description ?: ""
+                                it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
+                                it[instructions] = recipe.instructions?.joinToString("|") ?: ""
+                                it[imageUri] = recipe.imageUri
+                                it[rating] = recipe.rating ?: 0.0
+                                it[tags] = recipe.tags?.joinToString("|") ?: ""
+                                it[category] = recipe.category ?: "General"
+                                it[isFavorite] = recipe.isFavorite
+                                it[owner] = recipe.owner
+                            }
+                        } else {
+                            Recipes.insert {
+                                it[id] = recipe.id
+                                it[title] = recipe.title
+                                it[description] = recipe.description ?: ""
+                                it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
+                                it[instructions] = recipe.instructions?.joinToString("|") ?: ""
+                                it[imageUri] = recipe.imageUri
+                                it[rating] = recipe.rating ?: 0.0
+                                it[tags] = recipe.tags?.joinToString("|") ?: ""
+                                it[category] = recipe.category ?: "General"
+                                it[isFavorite] = recipe.isFavorite
+                                it[owner] = recipe.owner
+                            }
                         }
                     }
+                    call.respond(mapOf("status" to "success"))
+                } catch (e: Exception) {
+                    println("ERROR IN POST /recipes: ${e.message}")
+                    e.printStackTrace()
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (e.message ?: "Unknown error")))
                 }
-                call.respond(mapOf("status" to "success"))
             }
 
             delete("/{id}") {

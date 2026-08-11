@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
@@ -49,6 +55,27 @@ fun RecipeApp(
     val searchQueryState = remember { mutableStateOf("") }
     val selectedTabState = remember { mutableIntStateOf(0) }
     val currentUser = authViewModel.currentUser.value
+    val snackbarHostState = remember { SnackbarHostState() }
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentUser?.let {
+                    viewModel.refreshData(it.username)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+    }
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
 
     LaunchedEffect(currentUser) {
         currentUser?.let {
@@ -58,13 +85,19 @@ fun RecipeApp(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            if (selectedTabState.intValue != 3) {
+            AnimatedVisibility(
+                visible = selectedTabState.intValue != 3,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.secondary)
-                        .padding(top = 48.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
+                        .statusBarsPadding()
+                        .padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     SearchBar(
@@ -73,7 +106,11 @@ fun RecipeApp(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { authViewModel.logout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Logout", tint = MaterialTheme.colorScheme.onSecondary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = "Logout",
+                            tint = MaterialTheme.colorScheme.onSecondary
+                        )
                     }
                 }
             }
@@ -115,11 +152,20 @@ fun RecipeApp(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            val tab = selectedTabState.intValue
-            if (tab == 0) HomeScreen(viewModel, authViewModel)
-            else if (tab == 1) ExploreScreen(viewModel, searchQueryState.value)
-            else if (tab == 2) MyRecipesTab(viewModel, currentUser?.username ?: "")
-            else if (tab == 3) ProfileScreen(authViewModel)
+            AnimatedContent(
+                targetState = selectedTabState.intValue,
+                transitionSpec = {
+                    fadeIn() togetherWith fadeOut()
+                },
+                label = "TabTransition"
+            ) { tab ->
+                when (tab) {
+                    0 -> HomeScreen(viewModel, authViewModel)
+                    1 -> ExploreScreen(viewModel, searchQueryState.value)
+                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "")
+                    3 -> ProfileScreen(authViewModel)
+                }
+            }
         }
 
         if (showAddDialogState.value) {
@@ -148,7 +194,6 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     val isRefreshing = isRefreshingState.value
     
     val currentUser = authViewModel.currentUser.value
-    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         currentUser?.let {
@@ -156,16 +201,24 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { 
+            currentUser?.let { viewModel.refreshData(it.username) }
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             item {
                 Text(
                     text = "Recently Added Meals",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(16.dp)
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             item {
@@ -177,9 +230,13 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(recentRecipes) { recipe ->
-                            RecipeCard(recipe = recipe, onClick = { selectedRecipeState.value = recipe })
-                        }
+                        items(recentRecipes, key = { it.id }) { recipe ->
+                    RecipeCard(
+                        recipe = recipe,
+                        onClick = { selectedRecipeState.value = recipe },
+                        modifier = Modifier.animateItem()
+                    )
+                }
                     }
                 }
             }
@@ -199,9 +256,13 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(favoriteRecipes) { recipe ->
-                            RecipeCard(recipe = recipe, onClick = { selectedRecipeState.value = recipe })
-                        }
+                        items(favoriteRecipes, key = { it.id }) { recipe ->
+                    RecipeCard(
+                        recipe = recipe,
+                        onClick = { selectedRecipeState.value = recipe },
+                        modifier = Modifier.animateItem()
+                    )
+                }
                     }
                 }
             }
@@ -215,13 +276,20 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                 )
             }
 
-            if (recipes.isEmpty()) {
+            if (recipes.isEmpty() && !isRefreshing) {
                 item {
-                    Text("Your collection is empty.", modifier = Modifier.padding(16.dp), color = Color.Gray)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Your collection is empty.", color = Color.Gray)
+                    }
                 }
             } else {
-                items(recipes.reversed()) { recipe ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                items(recipes.reversed(), key = { it.id }) { recipe ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
                         RecipeItemRow(
                             recipe = recipe,
                             onDelete = { viewModel.deleteRecipe(recipe) },
@@ -229,26 +297,6 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                         )
                     }
                 }
-            }
-            
-            item { Spacer(modifier = Modifier.height(80.dp)) }
-        }
-        
-        IconButton(
-            onClick = { 
-                currentUser?.let { 
-                    viewModel.refreshData(it.username)
-                    Toast.makeText(context, "Refreshing data...", Toast.LENGTH_SHORT).show()
-                } 
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 8.dp, end = 8.dp)
-        ) {
-            if (isRefreshing) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -290,8 +338,8 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
     } else {
         recipes.filter {
             it.title.contains(query, ignoreCase = true) ||
-                    it.description.contains(query, ignoreCase = true) ||
-                    it.tags.any { tag -> tag.contains(query, ignoreCase = true) }
+                    it.description?.contains(query, ignoreCase = true) == true ||
+                    it.tags?.any { tag -> tag.contains(query, ignoreCase = true) } == true
         }
     }
 
@@ -531,7 +579,7 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(text = recipe.description, style = MaterialTheme.typography.bodySmall, maxLines = if (expandedState.value) Int.MAX_VALUE else 2)
+                    Text(text = recipe.description ?: "", style = MaterialTheme.typography.bodySmall, maxLines = if (expandedState.value) Int.MAX_VALUE else 2)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(14.dp))
                         Text(text = " ${recipe.rating}", style = MaterialTheme.typography.labelSmall)
@@ -543,7 +591,7 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
             }
 
             if (expandedState.value) {
-                recipe.ingredients.let { ingredientsList ->
+                recipe.ingredients?.let { ingredientsList ->
                     if (ingredientsList.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(text = "Ingredients:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -557,7 +605,7 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
                     }
                 }
 
-                recipe.instructions.let { instructionsList ->
+                recipe.instructions?.let { instructionsList ->
                     if (instructionsList.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(text = "Instructions:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -637,7 +685,7 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier
 }
 
 @Composable
-fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
+fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cardColors = listOf(
         MaterialTheme.colorScheme.secondary,
         Color(0xFF8C7D70), 
@@ -648,7 +696,7 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
 
     Card(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .width(220.dp)
             .height(320.dp),
         shape = RoundedCornerShape(16.dp),
@@ -706,7 +754,7 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                     maxLines = 1
                 )
                 Text(
-                    text = recipe.description,
+                    text = recipe.description ?: "",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.8f),
                     maxLines = 2,
@@ -716,7 +764,7 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.weight(1f))
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    recipe.tags.forEach { tag ->
+                    recipe.tags?.forEach { tag ->
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.White.copy(alpha = 0.2f)
@@ -782,9 +830,9 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                     )
                 }
 
-                Text(text = recipe.description, style = MaterialTheme.typography.bodyMedium)
+                Text(text = recipe.description ?: "", style = MaterialTheme.typography.bodyMedium)
 
-                recipe.ingredients.let { ingredientsList ->
+                recipe.ingredients?.let { ingredientsList ->
                     if (ingredientsList.isNotEmpty()) {
                         Text(text = "Ingredients", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         ingredientsList.forEach { ingredient ->
@@ -793,7 +841,7 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                     }
                 }
 
-                recipe.instructions.let { instructionsList ->
+                recipe.instructions?.let { instructionsList ->
                     if (instructionsList.isNotEmpty()) {
                         Text(text = "Instructions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         instructionsList.forEachIndexed { index, step ->
@@ -815,12 +863,12 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
 @Composable
 fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeUpdated: (Recipe) -> Unit) {
     val titleState = remember { mutableStateOf(recipe.title) }
-    val descriptionState = remember { mutableStateOf(recipe.description) }
-    val ingredientsState = remember { mutableStateOf(recipe.ingredients.joinToString("\n")) }
-    val instructionsState = remember { mutableStateOf(recipe.instructions.joinToString("\n")) }
-    val ratingState = remember { mutableStateOf(recipe.rating.toString()) }
-    val tagsState = remember { mutableStateOf(recipe.tags.joinToString(", ")) }
-    val selectedCategoryState = remember { mutableStateOf(recipe.category) }
+    val descriptionState = remember { mutableStateOf(recipe.description ?: "") }
+    val ingredientsState = remember { mutableStateOf(recipe.ingredients?.joinToString("\n") ?: "") }
+    val instructionsState = remember { mutableStateOf(recipe.instructions?.joinToString("\n") ?: "") }
+    val ratingState = remember { mutableStateOf(recipe.rating?.toString() ?: "0.0") }
+    val tagsState = remember { mutableStateOf(recipe.tags?.joinToString(", ") ?: "") }
+    val selectedCategoryState = remember { mutableStateOf(recipe.category ?: "General") }
     val imageUriState = remember { mutableStateOf<Uri?>(recipe.imageUri) }
     val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
     val expandedState = remember { mutableStateOf(false) }
