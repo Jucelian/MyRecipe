@@ -14,7 +14,7 @@ data class Recipe(
     val description: String? = null,
     val ingredients: List<String>? = emptyList(),
     val instructions: List<String>? = emptyList(),
-    @SerializedName("ImageUri")
+    @SerializedName("imageUri")
     val imageUri: Uri? = null,
     val rating: Double? = 0.0,
     val tags: List<String>? = emptyList(),

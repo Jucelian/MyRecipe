@@ -9,7 +9,7 @@ object Recipes : Table("recipes") {
     val description = text("description").nullable()
     val ingredients = text("ingredients").nullable()
     val instructions = text("instructions").nullable()
-    val imageUri = varchar("ImageUri", 1024).nullable()
+    val imageUri = varchar("imageUri", 1024).nullable()
     val rating = double("rating").nullable()
     val tags = text("tags").nullable()
     val category = varchar("category", 100).nullable()
