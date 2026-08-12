@@ -17,11 +17,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.myrecipe.BuildConfig
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun ProfileScreen(authViewModel: AuthViewModel) {
     val user = authViewModel.currentUser.value
     val colorScheme = MaterialTheme.colorScheme
+
+    val memberSinceDate = user?.createdAt?.let {
+        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(it))
+    } ?: "June 2024" // Fallback for existing users without createdAt
 
     Column(
         modifier = Modifier
@@ -73,7 +80,7 @@ fun ProfileScreen(authViewModel: AuthViewModel) {
             Column(modifier = Modifier.padding(16.dp)) {
                 ProfileInfoRow(icon = Icons.Default.Person, label = "Username", value = user?.username ?: "Not provided")
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.LightGray)
-                ProfileInfoRow(icon = Icons.Default.CalendarMonth, label = "Member Since", value = "June 2024")
+                ProfileInfoRow(icon = Icons.Default.CalendarMonth, label = "Member Since", value = memberSinceDate)
             }
         }
         

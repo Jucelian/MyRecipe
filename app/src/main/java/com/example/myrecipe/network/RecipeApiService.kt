@@ -8,13 +8,13 @@ import retrofit2.http.*
 
 interface RecipeApiService {
     @POST("signup")
-    suspend fun signup(@Body user: User): Map<String, String>
+    suspend fun signup(@Body user: User): LoginResponse
 
     @POST("login")
-    suspend fun login(@Body user: User): Map<String, String>
+    suspend fun login(@Body user: User): LoginResponse
 
     @POST("refresh")
-    suspend fun refreshToken(@Body body: Map<String, String>): Map<String, String>
+    suspend fun refreshToken(@Body body: Map<String, String>): LoginResponse
 
     @Multipart
     @POST("upload")

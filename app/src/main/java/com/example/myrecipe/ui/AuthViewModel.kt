@@ -42,8 +42,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         // Restore user if logged in
         if (_isLoggedIn.value) {
             val username = sharedPreferences.getString("saved_username", "") ?: ""
+            val createdAt = sharedPreferences.getLong("created_at", 0L)
             if (username.isNotBlank()) {
-                _currentUser.value = User(username, "") // Password not stored locally
+                _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null)
             }
         }
         initSession()
@@ -74,11 +75,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val user = User(username, password)
                 val response = RetrofitClient.instance.signup(user)
-                val accessToken = response["accessToken"]
-                val refreshToken = response["refreshToken"]
-                if (response["status"] == "success" && accessToken != null && refreshToken != null) {
-                    saveAuthData(username, accessToken, refreshToken)
-                    _currentUser.value = User(username, "")
+                val accessToken = response.accessToken
+                val refreshToken = response.refreshToken
+                if (response.status == "success" && accessToken != null && refreshToken != null) {
+                    val createdAt = response.createdAt ?: System.currentTimeMillis()
+                    saveAuthData(username, accessToken, refreshToken, createdAt)
+                    _currentUser.value = User(username, "", createdAt)
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -96,11 +98,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val user = User(username, password)
                 val response = RetrofitClient.instance.login(user)
-                val accessToken = response["accessToken"]
-                val refreshToken = response["refreshToken"]
-                if (response["status"] == "success" && accessToken != null && refreshToken != null) {
-                    saveAuthData(username, accessToken, refreshToken)
-                    _currentUser.value = User(username, "")
+                val accessToken = response.accessToken
+                val refreshToken = response.refreshToken
+                if (response.status == "success" && accessToken != null && refreshToken != null) {
+                    val createdAt = response.createdAt ?: 0L
+                    saveAuthData(username, accessToken, refreshToken, createdAt)
+                    _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null)
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -117,8 +120,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         val currentRefresh = refreshToken ?: return false
         return try {
             val response = RetrofitClient.instance.refreshToken(mapOf("refreshToken" to currentRefresh))
-            val newAccess = response["accessToken"]
-            if (response["status"] == "success" && newAccess != null) {
+            val newAccess = response.accessToken
+            if (response.status == "success" && newAccess != null) {
                 sharedPreferences.edit().putString("auth_token", newAccess).apply()
                 true
             } else {
@@ -131,11 +134,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun saveAuthData(username: String, accessToken: String, refreshToken: String) {
+    private fun saveAuthData(username: String, accessToken: String, refreshToken: String, createdAt: Long) {
         sharedPreferences.edit()
             .putString("saved_username", username)
             .putString("auth_token", accessToken)
             .putString("refresh_token", refreshToken)
+            .putLong("created_at", createdAt)
             .apply()
         _savedUsername.value = username
     }

@@ -23,6 +23,7 @@ object Recipes : Table("recipes") {
 object Users : Table("users") {
     val username = varchar("username", 50)
     val password = varchar("password", 255)
+    val createdAt = long("createdate").default(System.currentTimeMillis())
 
     override val primaryKey = PrimaryKey(username)
 }

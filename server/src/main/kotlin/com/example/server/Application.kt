@@ -59,6 +59,7 @@ data class TokenResponse(
     val status: String,
     val accessToken: String? = null,
     val refreshToken: String? = null,
+    val createdAt: Long? = null,
     val message: String? = null
 )
 
@@ -218,16 +219,18 @@ fun Application.module() {
         post("/signup") {
             val user = call.receive<UserDTO>()
             val hashedPassword = BCrypt.withDefaults().hashToString(12, user.password.toCharArray())
+            val now = System.currentTimeMillis()
             try {
                 transaction {
                     Users.insert {
                         it[Users.username] = user.username
                         it[Users.password] = hashedPassword
+                        it[Users.createdAt] = now
                     }
                 }
                 val accessToken = generateAccessToken(user.username)
                 val refreshToken = generateRefreshToken(user.username)
-                call.respond(TokenResponse("success", accessToken, refreshToken))
+                call.respond(TokenResponse("success", accessToken, refreshToken, now))
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.Conflict, TokenResponse("error", message = "Username already exists"))
             }
@@ -235,13 +238,15 @@ fun Application.module() {
 
         post("/login") {
             val credentials = call.receive<UserDTO>()
-            val storedPassword = transaction {
+            val userData = transaction {
                 Users.selectAll().where { Users.username eq credentials.username }
-                    .map { it[Users.password] }
+                    .map { Triple(it[Users.password], it[Users.createdAt], it[Users.username]) }
                     .singleOrNull()
             }
             
-            if (storedPassword != null) {
+            if (userData != null) {
+                val storedPassword = userData.first
+                val userCreatedAt = userData.second
                 var loginSuccessful = false
                 
                 // 1. Try BCrypt (New secure way)
@@ -269,7 +274,7 @@ fun Application.module() {
                 if (loginSuccessful) {
                     val accessToken = generateAccessToken(credentials.username)
                     val refreshToken = generateRefreshToken(credentials.username)
-                    call.respond(TokenResponse("success", accessToken, refreshToken))
+                    call.respond(TokenResponse("success", accessToken, refreshToken, userCreatedAt))
                 } else {
                     call.respond(HttpStatusCode.Unauthorized, TokenResponse("failure", message = "Invalid username or password"))
                 }
