@@ -142,11 +142,19 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                     val scheme = imageUriToSave.scheme
                     if (scheme == "content" || (scheme == "file" && !imageUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
                         // Copy to internal storage if it's a content URI or a file URI outside our internal files dir
-                        imageUriToSave = saveImageToInternalStorage(imageUriToSave)
+                        imageUriToSave = saveFileToInternalStorage(imageUriToSave, "recipe_images", "img_")
+                    }
+                }
+
+                var videoUriToSave = recipe.videoUri
+                if (videoUriToSave != null) {
+                    val scheme = videoUriToSave.scheme
+                    if (scheme == "content" || (scheme == "file" && !videoUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
+                        videoUriToSave = saveFileToInternalStorage(videoUriToSave, "recipe_videos", "vid_")
                     }
                 }
                 
-                val processedRecipe = recipe.copy(imageUri = imageUriToSave, owner = owner)
+                val processedRecipe = recipe.copy(imageUri = imageUriToSave, videoUri = videoUriToSave, owner = owner)
                 
                 Log.d("RecipeViewModel", "Adding recipe locally: ${processedRecipe.title}, imageUri: ${processedRecipe.imageUri}")
                 repository.addRecipe(processedRecipe)
@@ -167,11 +175,19 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 if (imageUriToSave != null) {
                     val scheme = imageUriToSave.scheme
                     if (scheme == "content" || (scheme == "file" && !imageUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
-                        imageUriToSave = saveImageToInternalStorage(imageUriToSave)
+                        imageUriToSave = saveFileToInternalStorage(imageUriToSave, "recipe_images", "img_")
                     }
                 }
 
-                val processedRecipe = recipe.copy(imageUri = imageUriToSave, owner = owner)
+                var videoUriToSave = recipe.videoUri
+                if (videoUriToSave != null) {
+                    val scheme = videoUriToSave.scheme
+                    if (scheme == "content" || (scheme == "file" && !videoUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
+                        videoUriToSave = saveFileToInternalStorage(videoUriToSave, "recipe_videos", "vid_")
+                    }
+                }
+
+                val processedRecipe = recipe.copy(imageUri = imageUriToSave, videoUri = videoUriToSave, owner = owner)
                 
                 Log.d("RecipeViewModel", "Updating recipe locally: ${processedRecipe.title}, imageUri: ${processedRecipe.imageUri}")
                 repository.updateRecipe(processedRecipe)
@@ -183,14 +199,15 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun saveImageToInternalStorage(uri: Uri): Uri? {
+    private fun saveFileToInternalStorage(uri: Uri, subDir: String, prefix: String): Uri? {
         return try {
             val context = getApplication<Application>()
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-            val directory = File(context.filesDir, "recipe_images")
+            val directory = File(context.filesDir, subDir)
             if (!directory.exists()) directory.mkdirs()
 
-            val fileName = "img_${System.currentTimeMillis()}.jpg"
+            val extension = if (subDir == "recipe_videos") "mp4" else "jpg"
+            val fileName = "${prefix}${System.currentTimeMillis()}.$extension"
             val file = File(directory, fileName)
 
             inputStream.use { input ->
@@ -208,8 +225,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     fun deleteRecipe(recipe: Recipe) {
         viewModelScope.launch {
             try {
-                // Delete local image file if it exists
-                recipe.imageUri?.let { uri ->
+                // Delete local image and video files if they exist
+                listOfNotNull(recipe.imageUri, recipe.videoUri).forEach { uri ->
                     if (uri.scheme == "file") {
                         try {
                             val file = File(uri.path ?: "")

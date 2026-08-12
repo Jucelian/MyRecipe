@@ -36,18 +36,52 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.Category
 import java.io.File
 import java.util.Calendar
+
+@Composable
+fun VideoPlayer(videoUri: Uri, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUri))
+            prepare()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = {
+            PlayerView(it).apply {
+                player = exoPlayer
+                useController = true
+            }
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .height(250.dp)
+            .clip(RoundedCornerShape(16.dp))
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1052,10 +1086,30 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                             .fillMaxWidth()
                             .height(240.dp)
                             .clip(RoundedCornerShape(20.dp)),
-                        contentScale = ContentScale.Crop,
-//                        placeholder = painterResource(R.drawable.chefmate_logo),
-//                        error = painterResource(R.drawable.chefmate_logo)
+                        contentScale = ContentScale.Crop
                     )
+                }
+
+                if (recipe.videoUri != null) {
+                    val isWebLink = recipe.videoUri.toString().startsWith("http")
+                    if (isWebLink) {
+                        val context = LocalContext.current
+                        Button(
+                            onClick = { 
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.videoUri)
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000)), // YouTube Red
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayCircle, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Watch Video Link")
+                        }
+                    } else {
+                        VideoPlayer(videoUri = recipe.videoUri)
+                    }
                 }
 
                 recipe.description?.let {
@@ -1140,7 +1194,10 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
     val tagsState = remember { mutableStateOf(recipe.tags?.joinToString(", ") ?: "") }
     val selectedCategoryState = remember { mutableStateOf(recipe.category ?: "General") }
     val imageUriState = remember { mutableStateOf<Uri?>(recipe.imageUri) }
+    val videoUriState = remember { mutableStateOf<Uri?>(recipe.videoUri) }
+    val videoLinkState = remember { mutableStateOf(if (recipe.videoUri?.toString()?.startsWith("http") == true) recipe.videoUri.toString() else "") }
     val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
+    val currentTempVideoUriState = remember { mutableStateOf<Uri?>(null) }
     val expandedState = remember { mutableStateOf(false) }
     val categoriesState = viewModel.categories.collectAsState()
     val categories = categoriesState.value
@@ -1170,6 +1227,15 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
     ) { isGranted ->
         if (isGranted) {
             Toast.makeText(context, "Camera permission granted.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            videoUriState.value = uri
+            videoLinkState.value = "" // Clear link if file selected
         }
     }
 
@@ -1223,6 +1289,8 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     }
                 }
 
+                Text("Media", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1235,7 +1303,7 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     ) {
                         Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Gallery", fontSize = 12.sp)
+                        Text("Img Gallery", fontSize = 10.sp)
                     }
                     Button(
                         onClick = { 
@@ -1260,21 +1328,35 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     ) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Camera", fontSize = 12.sp)
+                        Text("Img Camera", fontSize = 10.sp)
                     }
                 }
 
-                imageUriState.value?.let {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .padding(vertical = 4.dp),
-                        contentScale = ContentScale.Crop
-                    )
+                Button(
+                    onClick = { videoLauncher.launch("video/*") },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Select Video File")
+                }
+
+                OutlinedTextField(
+                    value = videoLinkState.value,
+                    onValueChange = { 
+                        videoLinkState.value = it
+                        if (it.isNotBlank()) videoUriState.value = null // Clear file if link entered
+                    },
+                    label = { Text("Or Paste Video Link (YouTube/Web)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    placeholder = { Text("https://...") }
+                )
+
+                if (imageUriState.value != null || videoUriState.value != null || videoLinkState.value.isNotBlank()) {
+                    Text("Preview Attached", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
 
                 OutlinedTextField(
@@ -1323,6 +1405,7 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
             Button(
                 onClick = {
                     if (titleState.value.isNotBlank()) {
+                        val finalVideoUri = if (videoLinkState.value.isNotBlank()) Uri.parse(videoLinkState.value) else videoUriState.value
                         onRecipeUpdated(
                             recipe.copy(
                                 title = titleState.value,
@@ -1330,6 +1413,7 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                                 ingredients = ingredientsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
                                 instructions = instructionsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
                                 imageUri = imageUriState.value,
+                                videoUri = finalVideoUri,
                                 rating = ratingState.value.toDoubleOrNull() ?: 0.0,
                                 tags = tagsState.value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { if (it.startsWith("#")) it else "#$it" },
                                 category = selectedCategoryState.value
@@ -1363,6 +1447,8 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
     val categories = categoriesState.value
     val selectedCategoryState = remember { mutableStateOf(initialCategory ?: "General") }
     val imageUriState = remember { mutableStateOf<Uri?>(null) }
+    val videoUriState = remember { mutableStateOf<Uri?>(null) }
+    val videoLinkState = remember { mutableStateOf("") }
     val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
     val expandedState = remember { mutableStateOf(false) }
 
@@ -1393,6 +1479,15 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
     ) { isGranted ->
         if (isGranted) {
             Toast.makeText(context, "Camera permission granted.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            videoUriState.value = uri
+            videoLinkState.value = ""
         }
     }
 
@@ -1446,6 +1541,8 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
                     }
                 }
 
+                Text("Media", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1458,7 +1555,7 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
                     ) {
                         Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Gallery", fontSize = 12.sp)
+                        Text("Img Gallery", fontSize = 10.sp)
                     }
                     Button(
                         onClick = { 
@@ -1483,21 +1580,35 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
                     ) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Camera", fontSize = 12.sp)
+                        Text("Img Camera", fontSize = 10.sp)
                     }
                 }
 
-                imageUriState.value?.let {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .padding(vertical = 4.dp),
-                        contentScale = ContentScale.Crop
-                    )
+                Button(
+                    onClick = { videoLauncher.launch("video/*") },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Select Video File")
+                }
+
+                OutlinedTextField(
+                    value = videoLinkState.value,
+                    onValueChange = { 
+                        videoLinkState.value = it
+                        if (it.isNotBlank()) videoUriState.value = null
+                    },
+                    label = { Text("Or Paste Video Link (YouTube/Web)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    placeholder = { Text("https://...") }
+                )
+
+                if (imageUriState.value != null || videoUriState.value != null || videoLinkState.value.isNotBlank()) {
+                    Text("Preview Attached", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
 
                 OutlinedTextField(
@@ -1546,6 +1657,7 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
             Button(
                 onClick = {
                     if (titleState.value.isNotBlank()) {
+                        val finalVideoUri = if (videoLinkState.value.isNotBlank()) Uri.parse(videoLinkState.value) else videoUriState.value
                         onRecipeAdded(
                             Recipe(
                                 title = titleState.value,
@@ -1553,6 +1665,7 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
                                 ingredients = ingredientsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
                                 instructions = instructionsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
                                 imageUri = imageUriState.value,
+                                videoUri = finalVideoUri,
                                 rating = ratingState.value.toDoubleOrNull() ?: 0.0,
                                 tags = tagsState.value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { if (it.startsWith("#")) it else "#$it" },
                                 category = selectedCategoryState.value

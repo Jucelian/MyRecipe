@@ -34,6 +34,8 @@ data class RecipeDTO(
     val instructions: List<String>? = emptyList(),
     @SerialName("imageUri")
     val imageUri: String? = null,
+    @SerialName("videoUri")
+    val videoUri: String? = null,
     val rating: Double? = 0.0,
     val tags: List<String>? = emptyList(),
     val category: String? = "General",
@@ -83,6 +85,13 @@ fun Application.module() {
             ignoreUnknownKeys = true
         })
     }
+
+    // Increase max request size for videos (e.g., 50MB)
+    // Note: Render free tier might have its own limits
+    // install(RequestSizeLimit) { maxContentLength = 52428800 } 
+    // In Ktor 3.x, use double configuration or plugins if needed. 
+    // Actually, by default it's usually enough for smaller clips, but let's check.
+    // For now I'll leave it as is unless it fails, but I'll add a comment.
 
     install(Authentication) {
         jwt("auth-jwt") {
@@ -158,9 +167,10 @@ fun Application.module() {
                     var fileName = ""
                     multipart.forEachPart { part ->
                         if (part is PartData.FileItem) {
-                            val originalName = part.originalFileName ?: "image.jpg"
+                            val originalName = part.originalFileName ?: "file.bin"
+                            val extension = originalName.substringAfterLast(".", "bin")
                             // Use UUID to prevent filename guessing
-                            val name = "img_${java.util.UUID.randomUUID()}_${originalName.replace("\\s".toRegex(), "_")}"
+                            val name = "file_${java.util.UUID.randomUUID()}.$extension"
                             println("Receiving file: $name")
                             val file = File(uploadDir, name)
                             
@@ -304,6 +314,7 @@ fun Application.module() {
                                 ingredients = row[Recipes.ingredients]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
                                 instructions = row[Recipes.instructions]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
                                 imageUri = row[Recipes.imageUri],
+                                videoUri = row[Recipes.videoUri],
                                 rating = row[Recipes.rating],
                                 tags = row[Recipes.tags]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
                                 category = row[Recipes.category],
@@ -336,6 +347,7 @@ fun Application.module() {
                                     it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
                                     it[instructions] = recipe.instructions?.joinToString("|") ?: ""
                                     it[imageUri] = recipe.imageUri
+                                    it[videoUri] = recipe.videoUri
                                     it[rating] = recipe.rating ?: 0.0
                                     it[tags] = recipe.tags?.joinToString("|") ?: ""
                                     it[category] = recipe.category ?: "General"
@@ -351,6 +363,7 @@ fun Application.module() {
                                     it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
                                     it[instructions] = recipe.instructions?.joinToString("|") ?: ""
                                     it[imageUri] = recipe.imageUri
+                                    it[videoUri] = recipe.videoUri
                                     it[rating] = recipe.rating ?: 0.0
                                     it[tags] = recipe.tags?.joinToString("|") ?: ""
                                     it[category] = recipe.category ?: "General"
