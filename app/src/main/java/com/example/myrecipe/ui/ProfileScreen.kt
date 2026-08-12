@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.myrecipe.BuildConfig
 
 @Composable
 fun ProfileScreen(authViewModel: AuthViewModel) {
@@ -91,6 +92,12 @@ fun ProfileScreen(authViewModel: AuthViewModel) {
             Text("Logout")
         }
         
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "App Version: ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
         Spacer(modifier = Modifier.height(16.dp))
     }
 }

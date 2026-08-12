@@ -239,10 +239,10 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun deleteCategory(category: Category) {
+    fun deleteCategory(category: Category, deleteRecipes: Boolean = false) {
         viewModelScope.launch {
             try {
-                repository.deleteCategory(category)
+                repository.deleteCategory(category, deleteRecipes)
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to delete category: ${e.message}"
             }

@@ -33,6 +33,15 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("ChefMate-${variant.name}.apk")
+        }
     }
 }
 

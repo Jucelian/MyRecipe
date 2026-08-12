@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
+import com.example.myrecipe.model.Category
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -186,6 +187,7 @@ fun RecipeApp(
 fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
+    val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
     
     val recipesState = viewModel.recipes.collectAsState()
     val isRefreshingState = viewModel.isRefreshing.collectAsState()
@@ -292,13 +294,24 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
                         RecipeItemRow(
                             recipe = recipe,
-                            onDelete = { viewModel.deleteRecipe(recipe) },
+                            onDelete = { recipeToDeleteState.value = recipe },
                             onClick = { selectedRecipeState.value = recipe }
                         )
                     }
                 }
             }
         }
+    }
+
+    recipeToDeleteState.value?.let { recipe ->
+        DeleteRecipeConfirmationDialog(
+            recipeName = recipe.title,
+            onConfirm = {
+                viewModel.deleteRecipe(recipe)
+                recipeToDeleteState.value = null
+            },
+            onDismiss = { recipeToDeleteState.value = null }
+        )
     }
 
     selectedRecipeState.value?.let { recipe ->
@@ -330,6 +343,7 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
 fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
+    val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
     val recipesState = viewModel.recipes.collectAsState()
     val recipes = recipesState.value
     
@@ -366,12 +380,23 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
                 items(filteredRecipes) { recipe ->
                     RecipeItemRow(
                         recipe = recipe,
-                        onDelete = { viewModel.deleteRecipe(recipe) },
+                        onDelete = { recipeToDeleteState.value = recipe },
                         onClick = { selectedRecipeState.value = recipe }
                     )
                 }
             }
         }
+    }
+
+    recipeToDeleteState.value?.let { recipe ->
+        DeleteRecipeConfirmationDialog(
+            recipeName = recipe.title,
+            onConfirm = {
+                viewModel.deleteRecipe(recipe)
+                recipeToDeleteState.value = null
+            },
+            onDismiss = { recipeToDeleteState.value = null }
+        )
     }
 
     selectedRecipeState.value?.let { recipe ->
@@ -403,6 +428,8 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
     val selectedCategoryState = remember { mutableStateOf<String?>(null) }
     val showAddCategoryDialogState = remember { mutableStateOf(false) }
+    val showDeleteConfirmationDialog = remember { mutableStateOf(false) }
+    val categoryToDelete = remember { mutableStateOf<Category?>(null) }
     
     val recipesState = viewModel.recipes.collectAsState()
     val categoriesState = viewModel.categories.collectAsState()
@@ -430,10 +457,18 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(categories) { category ->
+                    val recipesInCategory = recipes.filter { it.category == category.name }
                     CategoryItem(
                         category = category.name,
                         onClick = { selectedCategoryState.value = category.name },
-                        onDelete = { viewModel.deleteCategory(category) }
+                        onDelete = {
+                            if (recipesInCategory.isNotEmpty()) {
+                                categoryToDelete.value = category
+                                showDeleteConfirmationDialog.value = true
+                            } else {
+                                viewModel.deleteCategory(category)
+                            }
+                        }
                     )
                 }
             }
@@ -441,14 +476,26 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
     } else {
         val selectedRecipeForDetailState = remember { mutableStateOf<Recipe?>(null) }
         val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
+        val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
 
         CategoryDetailScreen(
             categoryName = selectedCategoryState.value!!,
             recipes = recipes.filter { it.category == selectedCategoryState.value },
             onBack = { selectedCategoryState.value = null },
-            onDeleteRecipe = { recipe -> viewModel.deleteRecipe(recipe) },
+            onDeleteRecipe = { recipe -> recipeToDeleteState.value = recipe },
             onRecipeClick = { recipe -> selectedRecipeForDetailState.value = recipe }
         )
+
+        recipeToDeleteState.value?.let { recipe ->
+            DeleteRecipeConfirmationDialog(
+                recipeName = recipe.title,
+                onConfirm = {
+                    viewModel.deleteRecipe(recipe)
+                    recipeToDeleteState.value = null
+                },
+                onDismiss = { recipeToDeleteState.value = null }
+            )
+        }
 
         selectedRecipeForDetailState.value?.let { recipe ->
             RecipeDetailDialog(
@@ -484,6 +531,77 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
             }
         )
     }
+
+    if (showDeleteConfirmationDialog.value) {
+        categoryToDelete.value?.let { category ->
+            DeleteCategoryConfirmationDialog(
+                categoryName = category.name,
+                onConfirm = {
+                    viewModel.deleteCategory(category, deleteRecipes = true)
+                    showDeleteConfirmationDialog.value = false
+                },
+                onDismiss = {
+                    showDeleteConfirmationDialog.value = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun DeleteCategoryConfirmationDialog(
+    categoryName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete Category") },
+        text = { 
+            Text("This category contains recipes. If you delete it, all recipes in this category ($categoryName) will also be deleted. Are you sure permanently delete the data?")
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Delete Everything")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun DeleteRecipeConfirmationDialog(
+    recipeName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete Recipe") },
+        text = { 
+            Text("Are you sure you want to delete recipe'$recipeName'? This action will permanently delete the recipe.")
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

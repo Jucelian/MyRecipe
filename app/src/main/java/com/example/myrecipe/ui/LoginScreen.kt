@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrecipe.R
+import com.example.myrecipe.BuildConfig
 
 @Composable
 fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
@@ -207,6 +208,14 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
                         Text(text = if (isSignUp) "Sign In" else "Sign Up", color = colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "Version ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
         }
     }
