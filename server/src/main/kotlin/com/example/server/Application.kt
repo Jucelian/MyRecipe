@@ -12,6 +12,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.io.File
+import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -99,10 +100,9 @@ fun Application.module() {
                         val file = File(uploadDir, name)
                         
                         try {
-                            part.streamProvider().use { input ->
-                                file.outputStream().buffered().use { output ->
-                                    input.copyTo(output)
-                                }
+                            val channel = part.provider()
+                            file.outputStream().use { output ->
+                                channel.copyTo(output)
                             }
                             fileName = name
                         } catch (writeError: Exception) {
@@ -124,7 +124,6 @@ fun Application.module() {
                 val errorDetails = e.message ?: "Unknown upload error"
                 println("UPLOAD ERROR: $errorDetails")
                 e.printStackTrace()
-                // Return the actual error message so we can see it in Logcat
                 call.respond(HttpStatusCode.InternalServerError, errorDetails)
             }
         }
