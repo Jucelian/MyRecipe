@@ -682,7 +682,9 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
                         modifier = Modifier
                             .size(80.dp)
                             .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 } else {
                     Box(
@@ -829,7 +831,9 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
@@ -944,7 +948,9 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                             .fillMaxWidth()
                             .height(200.dp)
                             .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 }
 

@@ -32,7 +32,7 @@ data class RecipeDTO(
     val description: String? = "",
     val ingredients: List<String>? = emptyList(),
     val instructions: List<String>? = emptyList(),
-    @SerialName("imageUri")
+    @SerialName("ImageUri")
     val imageUri: String? = null,
     val rating: Double? = 0.0,
     val tags: List<String>? = emptyList(),
