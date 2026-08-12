@@ -136,18 +136,24 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
-                val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
-                    val internalUri = saveImageToInternalStorage(recipe.imageUri)
-                    recipe.copy(imageUri = internalUri, owner = owner)
-                } else {
-                    recipe.copy(owner = owner)
+                
+                var imageUriToSave = recipe.imageUri
+                if (imageUriToSave != null) {
+                    val scheme = imageUriToSave.scheme
+                    if (scheme == "content" || (scheme == "file" && !imageUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
+                        // Copy to internal storage if it's a content URI or a file URI outside our internal files dir
+                        imageUriToSave = saveImageToInternalStorage(imageUriToSave)
+                    }
                 }
                 
-                // 1. Insert locally first
+                val processedRecipe = recipe.copy(imageUri = imageUriToSave, owner = owner)
+                
+                Log.d("RecipeViewModel", "Adding recipe locally: ${processedRecipe.title}, imageUri: ${processedRecipe.imageUri}")
                 repository.addRecipe(processedRecipe)
                 
             } catch (e: Exception) {
-                _errorMessage.value = "Failed to add recipe locally: ${e.message}"
+                Log.e("RecipeViewModel", "Failed to add recipe locally: ${e.message}")
+                _errorMessage.value = "Failed to add recipe: ${e.message}"
             }
         }
     }
@@ -156,18 +162,23 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val owner = if (recipe.owner.isBlank()) currentOwner.value else recipe.owner
-                val processedRecipe = if (recipe.imageUri != null && recipe.imageUri.scheme == "content") {
-                    val internalUri = saveImageToInternalStorage(recipe.imageUri)
-                    recipe.copy(imageUri = internalUri, owner = owner)
-                } else {
-                    recipe.copy(owner = owner)
-                }
                 
-                // 1. Update locally first
+                var imageUriToSave = recipe.imageUri
+                if (imageUriToSave != null) {
+                    val scheme = imageUriToSave.scheme
+                    if (scheme == "content" || (scheme == "file" && !imageUriToSave.path.orEmpty().contains(getApplication<Application>().filesDir.absolutePath))) {
+                        imageUriToSave = saveImageToInternalStorage(imageUriToSave)
+                    }
+                }
+
+                val processedRecipe = recipe.copy(imageUri = imageUriToSave, owner = owner)
+                
+                Log.d("RecipeViewModel", "Updating recipe locally: ${processedRecipe.title}, imageUri: ${processedRecipe.imageUri}")
                 repository.updateRecipe(processedRecipe)
                 
             } catch (e: Exception) {
-                _errorMessage.value = "Failed to update recipe locally: ${e.message}"
+                Log.e("RecipeViewModel", "Failed to update recipe locally: ${e.message}")
+                _errorMessage.value = "Failed to update recipe: ${e.message}"
             }
         }
     }

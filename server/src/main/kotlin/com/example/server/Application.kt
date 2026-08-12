@@ -85,25 +85,35 @@ fun Application.module() {
         }
 
         post("/upload") {
-            val multipart = call.receiveMultipart()
-            var fileName = ""
-            multipart.forEachPart { part ->
-                if (part is PartData.FileItem) {
-                    val name = "img_${System.currentTimeMillis()}_${part.originalFileName}"
-                    val file = File(uploadDir, name)
-                    part.streamProvider().use { input ->
-                        file.outputStream().use { output ->
-                            input.copyTo(output)
+            try {
+                val multipart = call.receiveMultipart()
+                var fileName = ""
+                multipart.forEachPart { part ->
+                    if (part is PartData.FileItem) {
+                        val name = "img_${System.currentTimeMillis()}_${part.originalFileName}"
+                        println("Receiving file: $name")
+                        val file = File(uploadDir, name)
+                        part.streamProvider().use { input ->
+                            file.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                        fileName = name
                     }
-                    fileName = name
+                    part.dispose()
                 }
-                part.dispose()
-            }
-            if (fileName.isNotEmpty()) {
-                call.respond(mapOf("url" to "/uploads/$fileName"))
-            } else {
-                call.respond(HttpStatusCode.BadRequest, "No file uploaded")
+                if (fileName.isNotEmpty()) {
+                    val url = "/uploads/$fileName"
+                    println("File uploaded successfully. Relative URL: $url")
+                    call.respond(mapOf("url" to url))
+                } else {
+                    println("No file found in multipart request")
+                    call.respond(HttpStatusCode.BadRequest, "No file uploaded")
+                }
+            } catch (e: Exception) {
+                println("UPLOAD ERROR: ${e.message}")
+                e.printStackTrace()
+                call.respond(HttpStatusCode.InternalServerError, "Upload failed")
             }
         }
         
@@ -168,7 +178,7 @@ fun Application.module() {
             post {
                 try {
                     val recipe = call.receive<RecipeDTO>()
-                    println("Received recipe for sync: ${recipe.title} (ID: ${recipe.id})")
+                    println("Received recipe for sync: ${recipe.title} (ID: ${recipe.id}), imageUri: ${recipe.imageUri}")
                     transaction {
                         println("Attempting to insert/update recipe: ${recipe.id}")
                         val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
