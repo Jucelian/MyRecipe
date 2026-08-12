@@ -33,8 +33,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -45,6 +47,7 @@ import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.Category
 import java.io.File
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +56,7 @@ fun RecipeApp(
     authViewModel: AuthViewModel
 ) {
     val showAddDialogState = remember { mutableStateOf(false) }
+    val activeCategoryState = remember { mutableStateOf<String?>(null) }
     val searchQueryState = remember { mutableStateOf("") }
     val selectedTabState = remember { mutableIntStateOf(0) }
     val currentUser = authViewModel.currentUser.value
@@ -98,7 +102,7 @@ fun RecipeApp(
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.secondary)
                         .statusBarsPadding()
-                        .padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     SearchBar(
@@ -106,11 +110,15 @@ fun RecipeApp(
                         onQueryChange = { searchQueryState.value = it },
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { authViewModel.logout() }) {
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { authViewModel.logout() },
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.15f))
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Logout,
                             contentDescription = "Logout",
-                            tint = MaterialTheme.colorScheme.onSecondary
+                            tint = Color.White
                         )
                     }
                 }
@@ -120,13 +128,19 @@ fun RecipeApp(
             NavigationBar {
                 NavigationBarItem(
                     selected = selectedTabState.intValue == 0,
-                    onClick = { selectedTabState.intValue = 0 },
+                    onClick = { 
+                        selectedTabState.intValue = 0
+                        activeCategoryState.value = null
+                    },
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
                     label = { Text("Home") }
                 )
                 NavigationBarItem(
                     selected = selectedTabState.intValue == 1,
-                    onClick = { selectedTabState.intValue = 1 },
+                    onClick = { 
+                        selectedTabState.intValue = 1
+                        activeCategoryState.value = null
+                    },
                     icon = { Icon(Icons.Default.Search, contentDescription = "Explore") },
                     label = { Text("Explore") }
                 )
@@ -138,7 +152,10 @@ fun RecipeApp(
                 )
                 NavigationBarItem(
                     selected = selectedTabState.intValue == 3,
-                    onClick = { selectedTabState.intValue = 3 },
+                    onClick = { 
+                        selectedTabState.intValue = 3
+                        activeCategoryState.value = null
+                    },
                     icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
                     label = { Text("Profile") }
                 )
@@ -163,7 +180,7 @@ fun RecipeApp(
                 when (tab) {
                     0 -> HomeScreen(viewModel, authViewModel)
                     1 -> ExploreScreen(viewModel, searchQueryState.value)
-                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "")
+                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it })
                     3 -> ProfileScreen(authViewModel)
                 }
             }
@@ -172,6 +189,7 @@ fun RecipeApp(
         if (showAddDialogState.value) {
             AddRecipeDialog(
                 viewModel = viewModel,
+                initialCategory = activeCategoryState.value,
                 onDismiss = { showAddDialogState.value = false },
                 onRecipeAdded = { recipe ->
                     viewModel.addRecipe(recipe.copy(owner = currentUser?.username ?: ""))
@@ -197,6 +215,12 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     
     val currentUser = authViewModel.currentUser.value
 
+    val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+        in 0..11 -> "Good Morning"
+        in 12..17 -> "Good Afternoon"
+        else -> "Good Evening"
+    }
+
     LaunchedEffect(Unit) {
         currentUser?.let {
             viewModel.setCurrentOwner(it.username)
@@ -212,16 +236,23 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp)
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
-                Text(
-                    text = "Recently Added Meals",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column(modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp)) {
+                    Text(
+                        text = "$greeting, Chef!",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Recently Added Meals",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
             }
             item {
                 val recentRecipes = recipes.reversed().take(5)
@@ -249,8 +280,9 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                     Text(
                         text = "Your Favorites",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(16.dp)
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp),
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
                 item {
@@ -271,10 +303,11 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
 
             item {
                 Text(
-                    text = "All Recipes",
+                    text = "Explore All",
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(16.dp)
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp),
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             }
 
@@ -359,10 +392,11 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            text = if (query.isEmpty()) "All Recipes" else "Search Results",
+            text = if (query.isEmpty()) "Discover Recipes" else "Search Results",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(16.dp)
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         if (filteredRecipes.isEmpty()) {
@@ -425,8 +459,13 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 }
 
 @Composable
-fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
+fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}) {
     val selectedCategoryState = remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(selectedCategoryState.value) {
+        onCategorySelected(selectedCategoryState.value)
+    }
+    
     val showAddCategoryDialogState = remember { mutableStateOf(false) }
     val showDeleteConfirmationDialog = remember { mutableStateOf(false) }
     val categoryToDelete = remember { mutableStateOf<Category?>(null) }
@@ -442,13 +481,21 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Categories", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                IconButton(onClick = { showAddCategoryDialogState.value = true }) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Category")
+                Text(
+                    text = "Categories", 
+                    style = MaterialTheme.typography.headlineMedium, 
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                IconButton(
+                    onClick = { showAddCategoryDialogState.value = true },
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Category", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
 
@@ -609,25 +656,42 @@ fun CategoryItem(category: String, onClick: () -> Unit, onDelete: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(20.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Folder, 
+                    contentDescription = null, 
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            Spacer(Modifier.width(16.dp))
             Text(
                 text = category,
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 4.dp)
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Category", tint = MaterialTheme.colorScheme.error)
+            IconButton(
+                onClick = onDelete,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete Category")
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
         }
     }
 }
@@ -666,76 +730,96 @@ fun CategoryDetailScreen(categoryName: String, recipes: List<Recipe>, onBack: ()
 
 @Composable
 fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
-    val expandedState = remember { mutableStateOf(false) }
-
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (recipe.imageUri != null) {
-                    AsyncImage(
-                        model = recipe.imageUri,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .background(Color.LightGray, RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Restaurant, contentDescription = null, tint = Color.Gray)
-                    }
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(text = recipe.description ?: "", style = MaterialTheme.typography.bodySmall, maxLines = if (expandedState.value) Int.MAX_VALUE else 2)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(14.dp))
-                        Text(text = " ${recipe.rating}", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Recipe", tint = MaterialTheme.colorScheme.error)
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (recipe.imageUri != null) {
+                AsyncImage(
+                    model = recipe.imageUri,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(90.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                    contentScale = ContentScale.Crop,
+//                    placeholder = painterResource(R.drawable.chefmate_logo),
+//                    error = painterResource(R.drawable.chefmate_logo)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(90.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Restaurant, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                 }
             }
-
-            if (expandedState.value) {
-                recipe.ingredients?.let { ingredientsList ->
-                    if (ingredientsList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(text = "Ingredients:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        ingredientsList.forEachIndexed { index, ingredient ->
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = recipe.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = recipe.description ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFFFC107),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = " ${recipe.rating}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    recipe.category?.let {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
                             Text(
-                                text = "${index + 1}. $ingredient",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                text = it,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
                 }
-
-                recipe.instructions?.let { instructionsList ->
-                    if (instructionsList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(text = "Instructions:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        instructionsList.forEachIndexed { index, step ->
-                            Text(
-                                text = "${index + 1}. $step",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
-                            )
-                        }
-                    }
-                }
+            }
+            
+            IconButton(
+                onClick = onDelete,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete Recipe")
             }
         }
     }
@@ -746,17 +830,23 @@ fun AddCategoryDialog(onDismiss: () -> Unit, onCategoryAdded: (String) -> Unit) 
     val categoryNameState = remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Category") },
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("New Category", fontWeight = FontWeight.Bold) },
         text = {
-            TextField(
+            OutlinedTextField(
                 value = categoryNameState.value,
                 onValueChange = { categoryNameState.value = it },
                 label = { Text("Category Name") },
-                singleLine = true
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
-            Button(onClick = { if (categoryNameState.value.isNotBlank()) onCategoryAdded(categoryNameState.value) }) {
+            Button(
+                onClick = { if (categoryNameState.value.isNotBlank()) onCategoryAdded(categoryNameState.value) },
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text("Create")
             }
         },
@@ -774,76 +864,83 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier
     TextField(
         value = query,
         onValueChange = onQueryChange,
-        placeholder = { Text("Search recipes...") },
+        placeholder = { Text("Search your recipes...", color = Color.Gray.copy(alpha = 0.6f)) },
         leadingIcon = {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.background),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.chefmate_logo),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            Icon(
+                Icons.Default.Search, 
+                contentDescription = null, 
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp)
+            )
         },
         modifier = modifier
-            .clip(RoundedCornerShape(24.dp)),
+            .height(56.dp)
+            .clip(CircleShape),
         colors = TextFieldDefaults.colors(
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
             disabledIndicatorColor = Color.Transparent,
-            unfocusedContainerColor = Color.White.copy(alpha = 0.9f),
+            unfocusedContainerColor = Color.White,
             focusedContainerColor = Color.White
-        )
+        ),
+        singleLine = true,
+        shape = CircleShape
     )
 }
 
 @Composable
 fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val cardColors = listOf(
-        MaterialTheme.colorScheme.secondary,
-        Color(0xFF8C7D70), 
-        Color(0xFFC2A479), 
-        Color(0xFF564335)  
-    )
-    val bgColor = cardColors[recipe.title.length % cardColors.size]
-
     Card(
         onClick = onClick,
         modifier = modifier
             .width(220.dp)
-            .height(320.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = bgColor)
+            .height(300.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column {
-            Box(modifier = Modifier.height(180.dp)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
                 if (recipe.imageUri != null) {
                     AsyncImage(
                         model = recipe.imageUri,
                         contentDescription = null,
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
-                        contentScale = ContentScale.Crop
+                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+                        contentScale = ContentScale.Crop,
+//                        placeholder = painterResource(R.drawable.chefmate_logo),
+//                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Restaurant,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
                 
+                // Floating Rating Badge
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp),
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
                     shape = RoundedCornerShape(12.dp),
-                    color = Color.White.copy(alpha = 0.9f)
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    tonalElevation = 4.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -852,46 +949,48 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
                             tint = Color(0xFFFFC107),
                             modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(2.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = recipe.rating.toString(),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Black
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
             
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = recipe.title,
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = recipe.description ?: "",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     modifier = Modifier.padding(top = 4.dp)
                 )
                 
                 Spacer(modifier = Modifier.weight(1f))
                 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    recipe.tags?.forEach { tag ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    recipe.tags?.take(2)?.forEach { tag ->
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.2f)
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
                         ) {
                             Text(
                                 text = tag,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
@@ -907,25 +1006,34 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.fillMaxWidth(0.92f),
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = recipe.title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Recipe", tint = MaterialTheme.colorScheme.primary)
-                }
-                IconButton(onClick = {
-                    isFavoriteState.value = !isFavoriteState.value
-                    onToggleFavorite()
-                }) {
-                    Icon(
-                        imageVector = if (isFavoriteState.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (isFavoriteState.value) Color.Red else Color.Gray
-                    )
+                Text(
+                    text = recipe.title, 
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold, 
+                    modifier = Modifier.weight(1f)
+                )
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Recipe", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = {
+                        isFavoriteState.value = !isFavoriteState.value
+                        onToggleFavorite()
+                    }) {
+                        Icon(
+                            imageVector = if (isFavoriteState.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFavoriteState.value) Color.Red else Color.Gray
+                        )
+                    }
                 }
             }
         },
@@ -934,7 +1042,7 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (recipe.imageUri != null) {
                     AsyncImage(
@@ -942,35 +1050,79 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                         contentDescription = null,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop
+                            .height(240.dp)
+                            .clip(RoundedCornerShape(20.dp)),
+                        contentScale = ContentScale.Crop,
+//                        placeholder = painterResource(R.drawable.chefmate_logo),
+//                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 }
 
-                Text(text = recipe.description ?: "", style = MaterialTheme.typography.bodyMedium)
+                recipe.description?.let {
+                    Text(
+                        text = it, 
+                        style = MaterialTheme.typography.bodyLarge,
+                        lineHeight = 24.sp
+                    )
+                }
 
                 recipe.ingredients?.let { ingredientsList ->
                     if (ingredientsList.isNotEmpty()) {
-                        Text(text = "Ingredients", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        ingredientsList.forEach { ingredient ->
-                            Text(text = "• $ingredient", style = MaterialTheme.typography.bodySmall)
+                        Column {
+                            Text(
+                                text = "Ingredients", 
+                                style = MaterialTheme.typography.titleMedium, 
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            ingredientsList.forEach { ingredient ->
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Box(modifier = Modifier.size(6.dp).background(MaterialTheme.colorScheme.secondary, CircleShape))
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(text = ingredient, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
                         }
                     }
                 }
 
                 recipe.instructions?.let { instructionsList ->
                     if (instructionsList.isNotEmpty()) {
-                        Text(text = "Instructions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        instructionsList.forEachIndexed { index, step ->
-                            Text(text = "${index + 1}. $step", style = MaterialTheme.typography.bodySmall)
+                        Column {
+                            Text(
+                                text = "Instructions", 
+                                style = MaterialTheme.typography.titleMedium, 
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            instructionsList.forEachIndexed { index, step ->
+                                Row(modifier = Modifier.padding(vertical = 6.dp)) {
+                                    Text(
+                                        text = "${index + 1}", 
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
+                                            .size(24.dp)
+                                            .wrapContentSize(Alignment.Center)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(text = step, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text("Close")
             }
         }
@@ -1025,32 +1177,35 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Recipe") },
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Edit Recipe", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier
                     .verticalScroll(scrollState)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                TextField(
+                OutlinedTextField(
                     value = titleState.value,
                     onValueChange = { titleState.value = it },
                     label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
                 
                 ExposedDropdownMenuBox(
                     expanded = expandedState.value,
                     onExpandedChange = { expandedState.value = !expandedState.value }
                 ) {
-                    TextField(
+                    OutlinedTextField(
                         value = selectedCategoryState.value,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Category") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedState.value) },
-                        modifier = Modifier.menuAnchor()
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     )
                     ExposedDropdownMenu(
                         expanded = expandedState.value,
@@ -1074,12 +1229,13 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                 ) {
                     Button(
                         onClick = { galleryLauncher.launch("image/*") },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Select Image")
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Gallery", fontSize = 12.sp)
                     }
                     Button(
                         onClick = { 
@@ -1098,12 +1254,13 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                                 permissionLauncher.launch(Manifest.permission.CAMERA)
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Take Photo")
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Camera", fontSize = 12.sp)
                     }
                 }
 
@@ -1114,39 +1271,52 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(150.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .padding(vertical = 8.dp),
+                            .clip(RoundedCornerShape(16.dp))
+                            .padding(vertical = 4.dp),
                         contentScale = ContentScale.Crop
                     )
                 }
 
-                TextField(
+                OutlinedTextField(
                     value = descriptionState.value,
                     onValueChange = { descriptionState.value = it },
-                    label = { Text("Description") }
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
+                OutlinedTextField(
                     value = ingredientsState.value,
                     onValueChange = { ingredientsState.value = it },
                     label = { Text("Ingredients (one per line)") },
-                    minLines = 3
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
+                OutlinedTextField(
                     value = instructionsState.value,
                     onValueChange = { instructionsState.value = it },
                     label = { Text("Cooking Steps (one per line)") },
-                    minLines = 3
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
-                    value = ratingState.value,
-                    onValueChange = { ratingState.value = it },
-                    label = { Text("Rating (e.g. 4.8)") }
-                )
-                TextField(
-                    value = tagsState.value,
-                    onValueChange = { tagsState.value = it },
-                    label = { Text("Tags (comma separated)") }
-                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = ratingState.value,
+                        onValueChange = { ratingState.value = it },
+                        label = { Text("Rating") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = tagsState.value,
+                        onValueChange = { tagsState.value = it },
+                        label = { Text("Tags") },
+                        modifier = Modifier.weight(2f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -1166,7 +1336,8 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                             )
                         )
                     }
-                }
+                },
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Save Changes")
             }
@@ -1181,7 +1352,7 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeAdded: (Recipe) -> Unit) {
+fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null, onDismiss: () -> Unit, onRecipeAdded: (Recipe) -> Unit) {
     val titleState = remember { mutableStateOf("") }
     val descriptionState = remember { mutableStateOf("") }
     val ingredientsState = remember { mutableStateOf("") }
@@ -1190,13 +1361,15 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
     val tagsState = remember { mutableStateOf("") }
     val categoriesState = viewModel.categories.collectAsState()
     val categories = categoriesState.value
-    val selectedCategoryState = remember { mutableStateOf("General") }
+    val selectedCategoryState = remember { mutableStateOf(initialCategory ?: "General") }
     val imageUriState = remember { mutableStateOf<Uri?>(null) }
     val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
     val expandedState = remember { mutableStateOf(false) }
 
-    LaunchedEffect(categories) {
-        if (selectedCategoryState.value == "General" && categories.isNotEmpty()) {
+    LaunchedEffect(categories, initialCategory) {
+        if (initialCategory != null) {
+            selectedCategoryState.value = initialCategory
+        } else if (selectedCategoryState.value == "General" && categories.isNotEmpty()) {
             selectedCategoryState.value = categories.first().name
         }
     }
@@ -1227,32 +1400,35 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add New Recipe") },
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Add New Recipe", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier
                     .verticalScroll(scrollState)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                TextField(
+                OutlinedTextField(
                     value = titleState.value,
                     onValueChange = { titleState.value = it },
                     label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
                 
                 ExposedDropdownMenuBox(
                     expanded = expandedState.value,
                     onExpandedChange = { expandedState.value = !expandedState.value }
                 ) {
-                    TextField(
+                    OutlinedTextField(
                         value = selectedCategoryState.value,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Category") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedState.value) },
-                        modifier = Modifier.menuAnchor()
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     )
                     ExposedDropdownMenu(
                         expanded = expandedState.value,
@@ -1276,12 +1452,13 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                 ) {
                     Button(
                         onClick = { galleryLauncher.launch("image/*") },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Select Image")
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Gallery", fontSize = 12.sp)
                     }
                     Button(
                         onClick = { 
@@ -1300,12 +1477,13 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                                 permissionLauncher.launch(Manifest.permission.CAMERA)
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Take Photo")
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Camera", fontSize = 12.sp)
                     }
                 }
 
@@ -1316,39 +1494,52 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(150.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .padding(vertical = 8.dp),
+                            .clip(RoundedCornerShape(16.dp))
+                            .padding(vertical = 4.dp),
                         contentScale = ContentScale.Crop
                     )
                 }
 
-                TextField(
+                OutlinedTextField(
                     value = descriptionState.value,
                     onValueChange = { descriptionState.value = it },
-                    label = { Text("Description") }
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
+                OutlinedTextField(
                     value = ingredientsState.value,
                     onValueChange = { ingredientsState.value = it },
                     label = { Text("Ingredients (one per line)") },
-                    minLines = 3
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
+                OutlinedTextField(
                     value = instructionsState.value,
                     onValueChange = { instructionsState.value = it },
                     label = { Text("Cooking Steps (one per line)") },
-                    minLines = 3
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
-                TextField(
-                    value = ratingState.value,
-                    onValueChange = { ratingState.value = it },
-                    label = { Text("Rating (e.g. 4.8)") }
-                )
-                TextField(
-                    value = tagsState.value,
-                    onValueChange = { tagsState.value = it },
-                    label = { Text("Tags (comma separated)") }
-                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = ratingState.value,
+                        onValueChange = { ratingState.value = it },
+                        label = { Text("Rating") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = tagsState.value,
+                        onValueChange = { tagsState.value = it },
+                        label = { Text("Tags") },
+                        modifier = Modifier.weight(2f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -1368,7 +1559,8 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeA
                             )
                         )
                     }
-                }
+                },
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Add")
             }
