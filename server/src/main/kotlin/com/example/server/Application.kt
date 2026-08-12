@@ -12,6 +12,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.io.File
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
@@ -25,10 +26,12 @@ data class RecipeDTO(
     val description: String? = "",
     val ingredients: List<String>? = emptyList(),
     val instructions: List<String>? = emptyList(),
+    @SerialName("imageUri")
     val imageUri: String? = null,
     val rating: Double? = 0.0,
     val tags: List<String>? = emptyList(),
     val category: String? = "General",
+    @SerialName("isFavorite")
     val isFavorite: Boolean = false,
     val owner: String = ""
 )
@@ -90,15 +93,22 @@ fun Application.module() {
                 var fileName = ""
                 multipart.forEachPart { part ->
                     if (part is PartData.FileItem) {
-                        val name = "img_${System.currentTimeMillis()}_${part.originalFileName}"
+                        val originalName = part.originalFileName ?: "image.jpg"
+                        val name = "img_${System.currentTimeMillis()}_${originalName.replace("\\s".toRegex(), "_")}"
                         println("Receiving file: $name")
                         val file = File(uploadDir, name)
-                        part.streamProvider().use { input ->
-                            file.outputStream().use { output ->
-                                input.copyTo(output)
+                        
+                        try {
+                            part.streamProvider().use { input ->
+                                file.outputStream().buffered().use { output ->
+                                    input.copyTo(output)
+                                }
                             }
+                            fileName = name
+                        } catch (writeError: Exception) {
+                            println("Disk Write Error: ${writeError.message}")
+                            throw writeError
                         }
-                        fileName = name
                     }
                     part.dispose()
                 }
@@ -111,9 +121,11 @@ fun Application.module() {
                     call.respond(HttpStatusCode.BadRequest, "No file uploaded")
                 }
             } catch (e: Exception) {
-                println("UPLOAD ERROR: ${e.message}")
+                val errorDetails = e.message ?: "Unknown upload error"
+                println("UPLOAD ERROR: $errorDetails")
                 e.printStackTrace()
-                call.respond(HttpStatusCode.InternalServerError, "Upload failed")
+                // Return the actual error message so we can see it in Logcat
+                call.respond(HttpStatusCode.InternalServerError, errorDetails)
             }
         }
         
@@ -178,9 +190,9 @@ fun Application.module() {
             post {
                 try {
                     val recipe = call.receive<RecipeDTO>()
-                    println("Received recipe for sync: ${recipe.title} (ID: ${recipe.id}), imageUri: ${recipe.imageUri}")
+                    println("Received recipe for sync: title='${recipe.title}', id='${recipe.id}', imageUri='${recipe.imageUri}'")
                     transaction {
-                        println("Attempting to insert/update recipe: ${recipe.id}")
+                        println("Database operation for recipe: ${recipe.id}")
                         val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
                         if (exists) {
                             Recipes.update({ Recipes.id eq recipe.id }) {
@@ -195,7 +207,7 @@ fun Application.module() {
                                 it[isFavorite] = recipe.isFavorite
                                 it[owner] = recipe.owner
                             }
-                            println("Recipe updated successfully in DB")
+                            println("Recipe ${recipe.id} updated successfully")
                         } else {
                             Recipes.insert {
                                 it[id] = recipe.id
@@ -210,7 +222,7 @@ fun Application.module() {
                                 it[isFavorite] = recipe.isFavorite
                                 it[owner] = recipe.owner
                             }
-                            println("Recipe inserted successfully in DB")
+                            println("Recipe ${recipe.id} inserted successfully")
                         }
                     }
                     call.respond(mapOf("status" to "success"))

@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+import com.google.gson.annotations.SerializedName
+
 @Entity(tableName = "recipes")
 data class Recipe(
     @PrimaryKey
@@ -12,6 +14,7 @@ data class Recipe(
     val description: String? = null,
     val ingredients: List<String>? = emptyList(),
     val instructions: List<String>? = emptyList(),
+    @SerializedName("imageUri")
     val imageUri: Uri? = null,
     val rating: Double? = 0.0,
     val tags: List<String>? = emptyList(),
