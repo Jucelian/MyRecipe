@@ -10,6 +10,7 @@ import com.example.myrecipe.ui.LoginScreen
 import com.example.myrecipe.ui.RecipeApp
 import com.example.myrecipe.ui.RecipeViewModel
 import com.example.myrecipe.ui.theme.MyRecipeTheme
+import com.example.myrecipe.network.RetrofitClient
 
 class MainActivity : ComponentActivity() {
     private var authViewModel: AuthViewModel? = null
@@ -22,6 +23,11 @@ class MainActivity : ComponentActivity() {
                 val viewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                 val recipeViewModel: RecipeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                 authViewModel = viewModel
+
+                LaunchedEffect(viewModel) {
+                    RetrofitClient.setTokenProvider { viewModel.authToken }
+                    RetrofitClient.setRefreshAction { viewModel.tryTokenRefresh() }
+                }
                 
                 LaunchedEffect(Unit) {
                     viewModel.initSession()

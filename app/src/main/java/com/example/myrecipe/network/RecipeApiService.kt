@@ -13,6 +13,9 @@ interface RecipeApiService {
     @POST("login")
     suspend fun login(@Body user: User): Map<String, String>
 
+    @POST("refresh")
+    suspend fun refreshToken(@Body body: Map<String, String>): Map<String, String>
+
     @Multipart
     @POST("upload")
     suspend fun uploadImage(@Part image: MultipartBody.Part): Map<String, String>

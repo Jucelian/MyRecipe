@@ -21,7 +21,7 @@ object Recipes : Table("recipes") {
 
 object Users : Table("users") {
     val username = varchar("username", 50)
-    val password = varchar("password", 50)
+    val password = varchar("password", 255)
 
     override val primaryKey = PrimaryKey(username)
 }
@@ -30,6 +30,15 @@ object Categories : Table("categories") {
     val id = varchar("id", 50)
     val name = varchar("name", 100)
     val owner = varchar("owner", 50)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object RefreshTokens : Table("refresh_tokens") {
+    val id = integer("id").autoIncrement()
+    val username = varchar("username", 50)
+    val token = varchar("token", 512)
+    val expiresAt = long("expires_at")
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -49,7 +58,7 @@ fun initDatabase() {
         }
 
         transaction {
-            SchemaUtils.createMissingTablesAndColumns(Recipes, Users, Categories)
+            SchemaUtils.createMissingTablesAndColumns(Recipes, Users, Categories, RefreshTokens)
         }
         println("Database initialized successfully!")
     } catch (e: Exception) {

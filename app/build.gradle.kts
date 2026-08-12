@@ -63,6 +63,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.gson)
+    implementation(libs.androidx.security.crypto)
 
     // Room
     implementation(libs.room.runtime)
