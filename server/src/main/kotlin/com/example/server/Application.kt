@@ -151,8 +151,17 @@ fun Application.module() {
     val uploadDir = File("uploads")
     if (!uploadDir.exists()) uploadDir.mkdirs()
     
-    val updateDir = File("updates")
-    if (!updateDir.exists()) updateDir.mkdirs()
+    fun getUpdateFile(name: String): File? {
+        val paths = listOf(
+            File("updates", name),
+            File("server/updates", name),
+            File("../updates", name)
+        )
+        for (file in paths) {
+            if (file.exists()) return file
+        }
+        return null
+    }
 
     fun getVersionProps(): Properties {
         val props = Properties()
@@ -194,20 +203,20 @@ fun Application.module() {
         }
 
         get("/app/download") {
-            println("DOWNLOAD: Request received for APK")
-            // Check for both release and debug names
-            val releaseFile = File(updateDir, "ChefMate-release.apk")
-            val debugFile = File(updateDir, "ChefMate-debug.apk")
+            val cwd = File(".").absolutePath
+            println("DOWNLOAD: Request received. CWD: $cwd")
             
-            val file = if (releaseFile.exists()) releaseFile else debugFile
+            val releaseFile = getUpdateFile("ChefMate-release.apk")
+            val debugFile = getUpdateFile("ChefMate-debug.apk")
             
-            if (file.exists()) {
+            val file = releaseFile ?: debugFile
+            
+            if (file != null && file.exists()) {
                 println("DOWNLOAD: Serving file ${file.absolutePath} (${file.length()} bytes)")
                 call.respondFile(file)
             } else {
-                println("DOWNLOAD ERROR: No APK found in ${updateDir.absolutePath}")
-                println("INFO: Checked for ${releaseFile.name} and ${debugFile.name}")
-                call.respond(HttpStatusCode.NotFound, "Update APK not found on server updates folder")
+                println("DOWNLOAD ERROR: No APK found in expected locations.")
+                call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
             }
         }
 
@@ -229,6 +238,24 @@ fun Application.module() {
                     call.respond(HttpStatusCode.NotFound)
                 }
             }
+        }
+
+        get("/debug/files") {
+            fun listAllFiles(dir: File): List<String> {
+                return dir.listFiles()?.flatMap { file ->
+                    if (file.isDirectory) {
+                        if (file.name == ".git" || file.name == ".gradle" || file.name == ".idea" || file.name == "build") {
+                            emptyList()
+                        } else {
+                            listAllFiles(file).map { "${file.name}/$it" }
+                        }
+                    } else {
+                        listOf(file.name)
+                    }
+                } ?: emptyList()
+            }
+            val files = listAllFiles(File("."))
+            call.respond(mapOf("working_dir" to File(".").absolutePath, "files" to files))
         }
 
         get("/debug/db") {
