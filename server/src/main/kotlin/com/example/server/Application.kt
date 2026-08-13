@@ -194,6 +194,7 @@ fun Application.module() {
         }
 
         get("/app/download") {
+            println("DOWNLOAD: Request received for APK")
             // Check for both release and debug names
             val releaseFile = File(updateDir, "ChefMate-release.apk")
             val debugFile = File(updateDir, "ChefMate-debug.apk")
@@ -201,8 +202,11 @@ fun Application.module() {
             val file = if (releaseFile.exists()) releaseFile else debugFile
             
             if (file.exists()) {
+                println("DOWNLOAD: Serving file ${file.absolutePath} (${file.length()} bytes)")
                 call.respondFile(file)
             } else {
+                println("DOWNLOAD ERROR: No APK found in ${updateDir.absolutePath}")
+                println("INFO: Checked for ${releaseFile.name} and ${debugFile.name}")
                 call.respond(HttpStatusCode.NotFound, "Update APK not found on server updates folder")
             }
         }

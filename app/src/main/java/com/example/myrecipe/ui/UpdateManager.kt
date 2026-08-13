@@ -55,7 +55,20 @@ class UpdateManager(private val context: Context) {
             override fun onReceive(ctxt: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
                 if (id == downloadId) {
-                    installApk(updateInfo.versionName)
+                    val query = DownloadManager.Query().setFilterById(downloadId)
+                    val cursor = downloadManager.query(query)
+                    if (cursor.moveToFirst()) {
+                        val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                        val status = cursor.getInt(statusIdx)
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            installApk(updateInfo.versionName)
+                        } else {
+                            val reasonIdx = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                            val reason = cursor.getInt(reasonIdx)
+                            Toast.makeText(context, "Download failed (Status: $status, Reason: $reason)", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    cursor.close()
                     try {
                         context.unregisterReceiver(this)
                     } catch (e: Exception) {
