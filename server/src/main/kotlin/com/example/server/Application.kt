@@ -26,6 +26,7 @@ import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
+import java.util.Properties
 
 @Serializable
 data class RecipeDTO(
@@ -153,18 +154,35 @@ fun Application.module() {
     val updateDir = File("updates")
     if (!updateDir.exists()) updateDir.mkdirs()
 
+    fun getVersionProps(): Properties {
+        val props = Properties()
+        // Try root first (Render) then parent (Local dev)
+        val filesToTry = listOf(File("version.properties"), File("../version.properties"))
+        for (file in filesToTry) {
+            if (file.exists()) {
+                file.inputStream().use { props.load(it) }
+                return props
+            }
+        }
+        return props
+    }
+
     routing {
         get("/app/version") {
             val host = call.request.host()
             val proto = call.request.headers["X-Forwarded-Proto"] ?: "http"
             val baseUrl = "$proto://$host"
             
-            // We set this to 3 so it's ALWAYS higher than your current app for testing
+            val props = getVersionProps()
+            val vCode = props.getProperty("versionCode", "1").toInt()
+            val vName = props.getProperty("versionName", "1.0")
+            val notes = props.getProperty("releaseNotes", "New update available")
+            
             call.respond(UpdateInfo(
-                versionCode = 3, 
-                versionName = "3.0",
+                versionCode = vCode, 
+                versionName = vName,
                 updateUrl = "$baseUrl/app/download",
-                releaseNotes = "• Testing the new update system\n• Support for Debug APKs"
+                releaseNotes = notes
             ))
         }
 
