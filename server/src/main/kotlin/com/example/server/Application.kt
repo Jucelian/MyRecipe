@@ -156,31 +156,21 @@ fun Application.module() {
 
     fun getVersionProps(): Properties {
         val props = Properties()
-        val cwd = File(".").absolutePath
-        println("INFO: Looking for version.properties. Current working directory: $cwd")
-        
-        // Try multiple locations to be safe
-        val filesToTry = listOf(
-            File("version.properties"),
-            File("../version.properties"),
-            File("../../version.properties"),
-            File("server/version.properties")
-        )
-        
-        for (file in filesToTry) {
-            if (file.exists()) {
-                println("SUCCESS: Found version.properties at ${file.absolutePath}")
-                try {
-                    file.inputStream().use { props.load(it) }
-                    return props
-                } catch (e: Exception) {
-                    println("ERROR: Failed to load version.properties: ${e.message}")
-                }
+        try {
+            val resourceStream = object {}.javaClass.classLoader.getResourceAsStream("version.properties")
+            if (resourceStream != null) {
+                props.load(resourceStream)
+                println("SUCCESS: Loaded version.properties from resources. Code: ${props.getProperty("versionCode")}")
             } else {
-                println("INFO: Checked ${file.absolutePath} - Not found")
+                println("WARNING: version.properties not found in resources. Trying filesystem...")
+                val file = File("version.properties")
+                if (file.exists()) {
+                    file.inputStream().use { props.load(it) }
+                }
             }
+        } catch (e: Exception) {
+            println("ERROR: Failed to load version.properties: ${e.message}")
         }
-        println("WARNING: version.properties not found anywhere. Using default version 1.0")
         return props
     }
 

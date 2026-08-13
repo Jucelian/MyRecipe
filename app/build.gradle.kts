@@ -8,7 +8,7 @@ plugins {
 }
 
 val versionProps = Properties().apply {
-    val propFile = rootProject.file("version.properties")
+    val propFile = rootProject.file("server/src/main/resources/version.properties")
     if (propFile.exists()) {
         propFile.inputStream().use { load(it) }
     }
