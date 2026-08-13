@@ -47,6 +47,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.Category
@@ -781,7 +782,10 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
         ) {
                 if (recipe.imageUri != null) {
                     AsyncImage(
-                        model = recipe.imageUri,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(recipe.imageUri)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .size(90.dp)
@@ -939,7 +943,10 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
             Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
                 if (recipe.imageUri != null) {
                     AsyncImage(
-                        model = recipe.imageUri,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(recipe.imageUri)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .fillMaxSize()
@@ -1080,7 +1087,10 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
             ) {
                 if (recipe.imageUri != null) {
                     AsyncImage(
-                        model = recipe.imageUri,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(recipe.imageUri)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .fillMaxWidth()
