@@ -152,15 +152,31 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
     
     fun getUpdateFile(name: String): File? {
-        // We will look ONLY in the 'updates' folder relative to where the server starts
-        val file = File("updates", name)
-        if (file.exists()) return file
+        // Check standard locations
+        val paths = listOf(
+            File("updates/$name"),
+            File("server/updates/$name"),
+            File("../updates/$name"),
+            File("../../updates/$name"),
+            File("server/src/main/resources/updates/$name"),
+            File("src/main/resources/updates/$name")
+        )
+        for (file in paths) {
+            if (file.exists()) return file
+        }
         
-        // Fallback for Render's structure
-        val fallback = File("server/updates", name)
-        if (fallback.exists()) return fallback
-        
-        return null
+        // Final attempt: Search current directory for ANY file matching the name
+        fun findDeep(dir: File): File? {
+            dir.listFiles()?.forEach { file ->
+                if (file.name == name) return file
+                if (file.isDirectory && file.name != ".git" && file.name != "build") {
+                    val found = findDeep(file)
+                    if (found != null) return found
+                }
+            }
+            return null
+        }
+        return findDeep(File("."))
     }
 
     fun getVersionProps(): Properties {

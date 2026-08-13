@@ -23,13 +23,23 @@ class UpdateManager(private val context: Context) {
         return withContext(Dispatchers.IO) {
             try {
                 val updateInfo = RetrofitClient.instance.getUpdateInfo()
-                if (updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                val currentCode = BuildConfig.VERSION_CODE
+                android.util.Log.d("UpdateManager", "Server Code: ${updateInfo.versionCode}, App Code: $currentCode")
+                
+                if (updateInfo.versionCode > currentCode) {
                     updateInfo
                 } else {
+                    // Show a toast with the details so the user knows WHY nothing happened
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "No update: Server(${updateInfo.versionCode}) <= App($currentCode)", Toast.LENGTH_LONG).show()
+                    }
                     null
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Check failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
                 null
             }
         }
