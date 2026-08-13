@@ -152,31 +152,43 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
     
     fun getUpdateFile(name: String): File? {
-        // Check standard locations
+        println("SEARCH: Starting search for $name")
+        // 1. Direct search in common locations
         val paths = listOf(
-            File("updates/$name"),
-            File("server/updates/$name"),
-            File("../updates/$name"),
-            File("../../updates/$name"),
-            File("server/src/main/resources/updates/$name"),
-            File("src/main/resources/updates/$name")
+            "updates/$name",
+            "server/updates/$name",
+            "../updates/$name",
+            "../../updates/$name",
+            "src/main/resources/updates/$name"
         )
-        for (file in paths) {
-            if (file.exists()) return file
+        for (path in paths) {
+            val f = File(path)
+            if (f.exists()) {
+                println("SEARCH SUCCESS: Found at $path")
+                return f
+            }
         }
         
-        // Final attempt: Search current directory for ANY file matching the name
-        fun findDeep(dir: File): File? {
-            dir.listFiles()?.forEach { file ->
+        // 2. Recursive search with simple loop (no lambda returns)
+        fun findFileRecursive(dir: File): File? {
+            val files = dir.listFiles() ?: return null
+            for (file in files) {
                 if (file.name == name) return file
-                if (file.isDirectory && file.name != ".git" && file.name != "build") {
-                    val found = findDeep(file)
+                if (file.isDirectory && !file.name.startsWith(".") && file.name != "build") {
+                    val found = findFileRecursive(file)
                     if (found != null) return found
                 }
             }
             return null
         }
-        return findDeep(File("."))
+        
+        val found = findFileRecursive(File("."))
+        if (found != null) {
+            println("SEARCH SUCCESS: Found deep at ${found.absolutePath}")
+        } else {
+            println("SEARCH FAILURE: $name not found anywhere in project")
+        }
+        return found
     }
 
     fun getVersionProps(): Properties {
