@@ -99,45 +99,45 @@ fun ProfileScreen(authViewModel: AuthViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Update Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-            onClick = {
-                if (!isCheckingUpdates) {
-                    scope.launch {
-                        isCheckingUpdates = true
-                        val info = updateManager.checkForUpdates()
-                        if (info != null) {
-                            updateInfo = info
-                            showUpdateDialog = true
-                        } else {
-                            Toast.makeText(context, "App is up to date", Toast.LENGTH_SHORT).show()
-                        }
-                        isCheckingUpdates = false
-                    }
-                }
-            }
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = colorScheme.primary)
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(text = "Check for Updates", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.weight(1f))
-                if (isCheckingUpdates) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(0.dp)) // Spacer hack or just empty
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.weight(1f))
+//        Card(
+//            modifier = Modifier.fillMaxWidth(),
+//            shape = RoundedCornerShape(16.dp),
+//            colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+//            onClick = {
+//                if (!isCheckingUpdates) {
+//                    scope.launch {
+//                        isCheckingUpdates = true
+//                        val info = updateManager.checkForUpdates()
+//                        if (info != null) {
+//                            updateInfo = info
+//                            showUpdateDialog = true
+//                        } else {
+//                            Toast.makeText(context, "App is up to date", Toast.LENGTH_SHORT).show()
+//                        }
+//                        isCheckingUpdates = false
+//                    }
+//                }
+//            }
+//        ) {
+//            Row(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(16.dp),
+//                verticalAlignment = Alignment.CenterVertically
+//            ) {
+//                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = colorScheme.primary)
+//                Spacer(modifier = Modifier.width(16.dp))
+//                Text(text = "Check for Updates", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+//                Spacer(modifier = Modifier.weight(1f))
+//                if (isCheckingUpdates) {
+//                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+//                } else {
+//                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(0.dp)) // Spacer hack or just empty
+//                }
+//            }
+//        }
+//
+//        Spacer(modifier = Modifier.weight(1f))
         
         Button(
             onClick = { authViewModel.logout() },
@@ -154,7 +154,7 @@ fun ProfileScreen(authViewModel: AuthViewModel) {
         
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "App Version: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) "_Debug (Code: ${BuildConfig.VERSION_CODE})" else ""}",
+            text = "App Version: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) "_Debug" else ""}",
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )
