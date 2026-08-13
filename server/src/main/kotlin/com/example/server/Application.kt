@@ -155,10 +155,16 @@ fun Application.module() {
         val paths = listOf(
             File("updates", name),
             File("server/updates", name),
-            File("../updates", name)
+            File("../updates", name),
+            File("../../updates", name),
+            File("server/src/main/resources/updates", name),
+            File("src/main/resources/updates", name)
         )
+        println("DEBUG: Searching for $name in ${paths.size} locations...")
         for (file in paths) {
-            if (file.exists()) return file
+            val exists = file.exists()
+            println("CHECK: ${file.absolutePath} - Exists: $exists")
+            if (exists) return file
         }
         return null
     }
