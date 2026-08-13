@@ -17,6 +17,8 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.server.cors)
+    implementation("io.ktor:ktor-client-core:3.0.1")
+    implementation("io.ktor:ktor-client-cio:3.0.1")
     implementation("io.ktor:ktor-server-auth-jvm:3.0.1")
     implementation("io.ktor:ktor-server-auth-jwt-jvm:3.0.1")
     implementation("at.favre.lib:bcrypt:0.10.2")

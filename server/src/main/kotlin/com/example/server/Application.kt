@@ -12,6 +12,8 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.io.File
+import io.ktor.utils.io.*
+import kotlinx.io.*
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
@@ -162,45 +164,39 @@ fun Application.module() {
         }
 
         authenticate("auth-jwt") {
+            val supabaseService = SupabaseService()
             post("/upload") {
                 try {
                     val multipart = call.receiveMultipart()
                     var fileName = ""
+                    var fileBytes: ByteArray? = null
+                    
                     multipart.forEachPart { part ->
                         if (part is PartData.FileItem) {
                             val originalName = part.originalFileName ?: "file.bin"
                             val extension = originalName.substringAfterLast(".", "bin")
-                            // Use UUID to prevent filename guessing
-                            val name = "file_${java.util.UUID.randomUUID()}.$extension"
-                            println("Receiving file: $name")
-                            val file = File(uploadDir, name)
+                            fileName = "file_${java.util.UUID.randomUUID()}.$extension"
                             
-                            try {
-                                val channel = part.provider()
-                                file.outputStream().use { output ->
-                                    channel.copyTo(output)
-                                }
-                                fileName = name
-                            } catch (writeError: Exception) {
-                                println("Disk Write Error: ${writeError.message}")
-                                throw writeError
-                            }
+                            // Read bytes from the channel
+                            val channel = part.provider()
+                            fileBytes = channel.readRemaining().readByteArray()
                         }
                         part.dispose()
                     }
-                    if (fileName.isNotEmpty()) {
-                        val url = "/uploads/$fileName"
-                        println("File uploaded successfully. Relative URL: $url")
-                        call.respond(mapOf("url" to url))
+                    
+                    if (fileName.isNotEmpty() && fileBytes != null) {
+                        val url = supabaseService.uploadFile(fileName, fileBytes!!)
+                        if (url != null) {
+                            call.respond(mapOf("url" to url))
+                        } else {
+                            call.respond(HttpStatusCode.InternalServerError, "Failed to upload to permanent storage")
+                        }
                     } else {
-                        println("No file found in multipart request")
-                        call.respond(HttpStatusCode.BadRequest, "No file uploaded")
+                        call.respond(HttpStatusCode.BadRequest, "No file found in request")
                     }
                 } catch (e: Exception) {
-                    val errorDetails = e.message ?: "Unknown upload error"
-                    println("UPLOAD ERROR: $errorDetails")
-                    e.printStackTrace()
-                    call.respond(HttpStatusCode.InternalServerError, errorDetails)
+                    println("UPLOAD ERROR: ${e.message}")
+                    call.respond(HttpStatusCode.InternalServerError, e.message ?: "Unknown error")
                 }
             }
         }
