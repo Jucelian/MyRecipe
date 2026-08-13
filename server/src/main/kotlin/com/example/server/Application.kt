@@ -143,7 +143,25 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
 
     routing {
-        staticFiles("/uploads", uploadDir)
+        // Custom route for /uploads to handle local vs Supabase fallback
+        get("/uploads/{name}") {
+            val fileName = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+            val file = File(uploadDir, fileName)
+            
+            if (file.exists()) {
+                // If it exists locally (Fast), serve it
+                call.respondFile(file)
+            } else {
+                // If missing (Render wiped it), fallback to Supabase
+                val supabaseUrl = System.getenv("SUPABASE_URL")?.removeSuffix("/") ?: ""
+                if (supabaseUrl.isNotBlank()) {
+                    val fallbackUrl = "$supabaseUrl/storage/v1/object/public/recipe-media/$fileName"
+                    call.respondRedirect(fallbackUrl)
+                } else {
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
+        }
 
         get("/debug/db") {
             try {
@@ -185,12 +203,16 @@ fun Application.module() {
                     }
                     
                     if (fileName.isNotEmpty() && fileBytes != null) {
-                        val url = supabaseService.uploadFile(fileName, fileBytes!!)
-                        if (url != null) {
-                            call.respond(mapOf("url" to url))
-                        } else {
-                            call.respond(HttpStatusCode.InternalServerError, "Failed to upload to permanent storage")
-                        }
+                        // 1. Save locally for fast access
+                        val file = File(uploadDir, fileName)
+                        file.writeBytes(fileBytes!!)
+                        
+                        // 2. Upload to Supabase as backup
+                        supabaseService.uploadFile(fileName, fileBytes!!)
+                        
+                        // 3. Return the LOCAL server URL as primary
+                        val url = "/uploads/$fileName"
+                        call.respond(mapOf("url" to url))
                     } else {
                         call.respond(HttpStatusCode.BadRequest, "No file found in request")
                     }
