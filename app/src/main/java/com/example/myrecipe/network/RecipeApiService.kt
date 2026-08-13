@@ -3,10 +3,14 @@ package com.example.myrecipe.network
 import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.User
+import com.example.myrecipe.model.UpdateInfo
 import okhttp3.MultipartBody
 import retrofit2.http.*
 
 interface RecipeApiService {
+    @GET("app/version")
+    suspend fun getUpdateInfo(): UpdateInfo
+
     @POST("signup")
     suspend fun signup(@Body user: User): LoginResponse
 

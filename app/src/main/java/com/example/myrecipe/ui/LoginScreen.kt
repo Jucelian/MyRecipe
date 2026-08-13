@@ -211,7 +211,7 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
 
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = "Version ${BuildConfig.VERSION_NAME}",
+                    text = "Version ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) "_Debug" else ""}",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 8.dp)

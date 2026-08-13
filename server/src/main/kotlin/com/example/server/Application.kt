@@ -68,6 +68,14 @@ data class TokenResponse(
 @Serializable
 data class RefreshRequest(val refreshToken: String)
 
+@Serializable
+data class UpdateInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val updateUrl: String,
+    val releaseNotes: String
+)
+
 fun main() {
     initDatabase() // Initialize DB before starting server
     val port = System.getenv("PORT")?.toInt() ?: 8080
@@ -141,8 +149,39 @@ fun Application.module() {
     // DB already initialized in main
     val uploadDir = File("uploads")
     if (!uploadDir.exists()) uploadDir.mkdirs()
+    
+    val updateDir = File("updates")
+    if (!updateDir.exists()) updateDir.mkdirs()
 
     routing {
+        get("/app/version") {
+            val host = call.request.host()
+            val proto = call.request.headers["X-Forwarded-Proto"] ?: "http"
+            val baseUrl = "$proto://$host"
+            
+            // We set this to 3 so it's ALWAYS higher than your current app for testing
+            call.respond(UpdateInfo(
+                versionCode = 3, 
+                versionName = "3.0",
+                updateUrl = "$baseUrl/app/download",
+                releaseNotes = "• Testing the new update system\n• Support for Debug APKs"
+            ))
+        }
+
+        get("/app/download") {
+            // Check for both release and debug names
+            val releaseFile = File(updateDir, "ChefMate-release.apk")
+            val debugFile = File(updateDir, "ChefMate-debug.apk")
+            
+            val file = if (releaseFile.exists()) releaseFile else debugFile
+            
+            if (file.exists()) {
+                call.respondFile(file)
+            } else {
+                call.respond(HttpStatusCode.NotFound, "Update APK not found on server updates folder")
+            }
+        }
+
         // Custom route for /uploads to handle local vs Supabase fallback
         get("/uploads/{name}") {
             val fileName = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
@@ -203,12 +242,20 @@ fun Application.module() {
                     }
                     
                     if (fileName.isNotEmpty() && fileBytes != null) {
+                        println("UPLOAD: Received file $fileName (${fileBytes!!.size} bytes)")
+                        
                         // 1. Save locally for fast access
                         val file = File(uploadDir, fileName)
                         file.writeBytes(fileBytes!!)
+                        println("UPLOAD: Saved locally to ${file.absolutePath}")
                         
                         // 2. Upload to Supabase as backup
-                        supabaseService.uploadFile(fileName, fileBytes!!)
+                        val supabaseUrl = supabaseService.uploadFile(fileName, fileBytes!!)
+                        if (supabaseUrl != null) {
+                            println("UPLOAD: Successfully backed up to Supabase: $supabaseUrl")
+                        } else {
+                            println("UPLOAD ERROR: Supabase backup failed for $fileName")
+                        }
                         
                         // 3. Return the LOCAL server URL as primary
                         val url = "/uploads/$fileName"
