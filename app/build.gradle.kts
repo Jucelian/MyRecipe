@@ -49,7 +49,7 @@ android {
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
-            output.outputFileName.set("ChefMate-${variant.name}.apk")
+            output.outputFileName.set("ChefMate_${variant.name}.apk")
         }
     }
 }

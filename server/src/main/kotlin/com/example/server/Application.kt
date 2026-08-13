@@ -234,8 +234,8 @@ fun Application.module() {
             val cwd = File(".").absolutePath
             println("DOWNLOAD: Request received. CWD: $cwd")
             
-            val releaseFile = getUpdateFile("ChefMate-release.apk")
-            val debugFile = getUpdateFile("ChefMate-debug.apk")
+            val releaseFile = getUpdateFile("ChefMate_release.apk")
+            val debugFile = getUpdateFile("ChefMate_debug.apk")
             
             val file = releaseFile ?: debugFile
             
@@ -269,7 +269,7 @@ fun Application.module() {
         }
 
         get("/debug/apk") {
-            val name = "ChefMate-debug.apk"
+            val name = "ChefMate_debug.apk"
             val file1 = File("updates/$name")
             val file2 = File("server/updates/$name")
             val file3 = File("src/main/resources/updates/$name")
