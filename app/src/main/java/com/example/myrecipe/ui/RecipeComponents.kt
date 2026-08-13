@@ -779,18 +779,18 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (recipe.imageUri != null) {
-                AsyncImage(
-                    model = recipe.imageUri,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(90.dp)
-                        .clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Crop,
-//                    placeholder = painterResource(R.drawable.chefmate_logo),
-//                    error = painterResource(R.drawable.chefmate_logo)
-                )
-            } else {
+                if (recipe.imageUri != null) {
+                    AsyncImage(
+                        model = recipe.imageUri,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
+                    )
+                } else {
                 Box(
                     modifier = Modifier
                         .size(90.dp)
@@ -945,8 +945,8 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
                             .fillMaxSize()
                             .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
                         contentScale = ContentScale.Crop,
-//                        placeholder = painterResource(R.drawable.chefmate_logo),
-//                        error = painterResource(R.drawable.chefmate_logo)
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 } else {
                     Box(
@@ -1086,7 +1086,9 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                             .fillMaxWidth()
                             .height(240.dp)
                             .clip(RoundedCornerShape(20.dp)),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.chefmate_logo),
+                        error = painterResource(R.drawable.chefmate_logo)
                     )
                 }
 
