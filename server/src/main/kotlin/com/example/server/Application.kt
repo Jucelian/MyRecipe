@@ -152,20 +152,14 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
     
     fun getUpdateFile(name: String): File? {
-        val paths = listOf(
-            File("updates", name),
-            File("server/updates", name),
-            File("../updates", name),
-            File("../../updates", name),
-            File("server/src/main/resources/updates", name),
-            File("src/main/resources/updates", name)
-        )
-        println("DEBUG: Searching for $name in ${paths.size} locations...")
-        for (file in paths) {
-            val exists = file.exists()
-            println("CHECK: ${file.absolutePath} - Exists: $exists")
-            if (exists) return file
-        }
+        // We will look ONLY in the 'updates' folder relative to where the server starts
+        val file = File("updates", name)
+        if (file.exists()) return file
+        
+        // Fallback for Render's structure
+        val fallback = File("server/updates", name)
+        if (fallback.exists()) return fallback
+        
         return null
     }
 
@@ -248,16 +242,16 @@ fun Application.module() {
 
         get("/debug/apk") {
             val name = "ChefMate-debug.apk"
-            val paths = listOf(
-                File("updates", name),
-                File("server/updates", name),
-                File("../updates", name),
-                File("../../updates", name),
-                File("server/src/main/resources/updates", name),
-                File("src/main/resources/updates", name)
-            )
-            val results = paths.map { it.absolutePath to it.exists() }
-            call.respond(mapOf("searching_for" to name, "checks" to results))
+            val file1 = File("updates", name)
+            val file2 = File("server/updates", name)
+            
+            call.respond(mapOf(
+                "cwd" to File(".").absolutePath,
+                "path1" to file1.absolutePath,
+                "exists1" to file1.exists(),
+                "path2" to file2.absolutePath,
+                "exists2" to file2.exists()
+            ))
         }
 
         get("/debug/files") {
