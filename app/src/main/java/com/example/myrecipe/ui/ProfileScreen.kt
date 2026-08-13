@@ -154,7 +154,7 @@ fun ProfileScreen(authViewModel: AuthViewModel) {
         
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "App Version: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) "_Debug" else ""}",
+            text = "App Version: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) "_Debug (Code: ${BuildConfig.VERSION_CODE})" else ""}",
             style = MaterialTheme.typography.labelSmall,
             color = Color.Gray
         )

@@ -246,6 +246,20 @@ fun Application.module() {
             }
         }
 
+        get("/debug/apk") {
+            val name = "ChefMate-debug.apk"
+            val paths = listOf(
+                File("updates", name),
+                File("server/updates", name),
+                File("../updates", name),
+                File("../../updates", name),
+                File("server/src/main/resources/updates", name),
+                File("src/main/resources/updates", name)
+            )
+            val results = paths.map { it.absolutePath to it.exists() }
+            call.respond(mapOf("searching_for" to name, "checks" to results))
+        }
+
         get("/debug/files") {
             fun listAllFiles(dir: File): List<String> {
                 return dir.listFiles()?.flatMap { file ->
