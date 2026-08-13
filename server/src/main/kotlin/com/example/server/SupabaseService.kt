@@ -19,11 +19,13 @@ class SupabaseService {
 
         // Supabase Storage API endpoint
         val uploadUrl = "$supabaseUrl/storage/v1/object/recipe-media/$fileName"
+        println("Attempting upload to Supabase: $uploadUrl")
         
         try {
-            val response: HttpResponse = client.put(uploadUrl) {
+            val response: HttpResponse = client.post(uploadUrl) {
                 header("Authorization", "Bearer $supabaseKey")
                 header("apikey", supabaseKey)
+                header("x-upsert", "true") // Allow overwriting
                 
                 val extension = fileName.substringAfterLast(".", "").lowercase()
                 val contentType = when (extension) {
@@ -36,12 +38,14 @@ class SupabaseService {
                 setBody(bytes)
             }
 
-            return if (response.status.value in 200..299) {
-                "$supabaseUrl/storage/v1/object/public/recipe-media/$fileName"
+            if (response.status.value in 200..299) {
+                val publicUrl = "$supabaseUrl/storage/v1/object/public/recipe-media/$fileName"
+                println("Supabase upload SUCCESS: $publicUrl")
+                return publicUrl
             } else {
                 val errorBody = response.bodyAsText()
                 println("Supabase upload failed: ${response.status} - $errorBody")
-                null
+                return null
             }
         } catch (e: Exception) {
             println("Supabase upload Exception: ${e.message}")
