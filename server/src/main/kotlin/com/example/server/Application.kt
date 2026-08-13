@@ -242,34 +242,44 @@ fun Application.module() {
 
         get("/debug/apk") {
             val name = "ChefMate-debug.apk"
-            val file1 = File("updates", name)
-            val file2 = File("server/updates", name)
+            val file1 = File("updates/$name")
+            val file2 = File("server/updates/$name")
+            val file3 = File("src/main/resources/updates/$name")
             
-            call.respond(mapOf(
-                "cwd" to File(".").absolutePath,
-                "path1" to file1.absolutePath,
-                "exists1" to file1.exists(),
-                "path2" to file2.absolutePath,
-                "exists2" to file2.exists()
-            ))
+            val report = StringBuilder()
+            report.append("CWD: ${File(".").absolutePath}\n\n")
+            report.append("Checking for $name:\n")
+            report.append("1. ./updates/$name -> ${file1.exists()}\n")
+            report.append("2. ./server/updates/$name -> ${file2.exists()}\n")
+            report.append("3. ./resources/updates/$name -> ${file3.exists()}\n")
+            
+            val resource = object {}.javaClass.classLoader.getResource("version.properties")
+            report.append("\nVersion File Check:\n")
+            report.append("Resource 'version.properties' exists: ${resource != null}\n")
+            if (resource != null) report.append("Resource Path: ${resource.path}\n")
+            
+            call.respondText(report.toString())
         }
 
         get("/debug/files") {
-            fun listAllFiles(dir: File): List<String> {
-                return dir.listFiles()?.flatMap { file ->
+            val report = StringBuilder()
+            fun walk(dir: File, depth: Int) {
+                if (depth > 3) return
+                dir.listFiles()?.forEach { file ->
+                    val indent = "  ".repeat(depth)
                     if (file.isDirectory) {
-                        if (file.name == ".git" || file.name == ".gradle" || file.name == ".idea" || file.name == "build") {
-                            emptyList()
-                        } else {
-                            listAllFiles(file).map { "${file.name}/$it" }
+                        if (file.name != ".git" && file.name != "build" && file.name != ".gradle") {
+                            report.append("$indent[DIR] ${file.name}\n")
+                            walk(file, depth + 1)
                         }
                     } else {
-                        listOf(file.name)
+                        report.append("$indent${file.name} (${file.length()} bytes)\n")
                     }
-                } ?: emptyList()
+                }
             }
-            val files = listAllFiles(File("."))
-            call.respond(mapOf("working_dir" to File(".").absolutePath, "files" to files))
+            report.append("File Structure (Root):\n")
+            walk(File("."), 0)
+            call.respondText(report.toString())
         }
 
         get("/debug/db") {
