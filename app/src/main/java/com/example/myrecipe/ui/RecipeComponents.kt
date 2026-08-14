@@ -216,7 +216,7 @@ fun RecipeApp(
                     0 -> HomeScreen(viewModel, authViewModel)
                     1 -> ExploreScreen(viewModel, searchQueryState.value)
                     2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it })
-                    3 -> ProfileScreen(authViewModel)
+                    3 -> ProfileScreen(authViewModel, viewModel)
                 }
             }
         }
