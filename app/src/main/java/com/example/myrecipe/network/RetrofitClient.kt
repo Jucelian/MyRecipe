@@ -78,4 +78,11 @@ object RetrofitClient {
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
         .create(RecipeApiService::class.java)
+
+    val publicInstance: PublicRecipeApiService = Retrofit.Builder()
+        .baseUrl("https://www.themealdb.com/api/json/v1/1/")
+        .client(okHttpClient) // Reuse the same client for logging/timeouts
+        .addConverterFactory(GsonConverterFactory.create(gson))
+        .build()
+        .create(PublicRecipeApiService::class.java)
 }

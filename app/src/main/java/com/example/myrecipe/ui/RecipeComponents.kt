@@ -9,10 +9,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +56,47 @@ import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.Category
 import java.io.File
 import java.util.Calendar
+
+@Composable
+fun AutoScrollingRecipeRow(
+    meals: List<Recipe>,
+    onRecipeClick: (Recipe) -> Unit
+) {
+    if (meals.isEmpty()) return
+    
+    // We use a large number of pages to simulate an infinite loop
+    val loopCount = 1000
+    val totalPages = meals.size * loopCount
+    val initialPage = (meals.size * loopCount) / 2
+    val pagerState = rememberPagerState(pageCount = { totalPages }, initialPage = initialPage)
+    
+    // Auto-scroll effect
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(4000) // Scroll every 4 seconds
+            if (!pagerState.isScrollInProgress) {
+                val nextPage = pagerState.currentPage + 1
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
+    }
+
+    HorizontalPager(
+        state = pagerState,
+        contentPadding = PaddingValues(horizontal = 40.dp),
+        pageSpacing = 16.dp,
+        modifier = Modifier.fillMaxWidth().height(310.dp)
+    ) { page ->
+        val actualIndex = page % meals.size
+        val meal = meals[actualIndex]
+        
+        RecipeCard(
+            recipe = meal,
+            onClick = { onRecipeClick(meal) },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
 
 @Composable
 fun VideoPlayer(videoUri: Uri, modifier: Modifier = Modifier) {
@@ -244,9 +288,16 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     
     val recipesState = viewModel.recipes.collectAsState()
     val isRefreshingState = viewModel.isRefreshing.collectAsState()
+    val dailyRecipesState = viewModel.dailyRecipes.collectAsState()
     
     val recipes = recipesState.value
     val isRefreshing = isRefreshingState.value
+    val dailyRecipes = dailyRecipesState.value
+    
+    val isDailyPicksExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("daily_picks")) }
+    val isRecentMealsExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("recent_meals")) }
+    val isFavoritesExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("favorites")) }
+    val isExploreAllExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("explore_all")) }
     
     val currentUser = authViewModel.currentUser.value
 
@@ -273,38 +324,120 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            if (dailyRecipes.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { 
+                                isDailyPicksExpanded.value = !isDailyPicksExpanded.value
+                                authViewModel.setSectionExpanded("daily_picks", isDailyPicksExpanded.value)
+                            }
+                            .padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Daily Chef's Picks",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Today's Inspiration",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                        Icon(
+                            imageVector = if (isDailyPicksExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isDailyPicksExpanded.value) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                
+                if (isDailyPicksExpanded.value) {
+                    dailyRecipes.forEach { (category, meals) ->
+                        item {
+                            Text(
+                                text = category,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        item {
+                            AutoScrollingRecipeRow(
+                                meals = meals,
+                                onRecipeClick = { selectedRecipeState.value = it }
+                            )
+                        }
+                    }
+
+                    item {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                        )
+                    }
+                }
+            }
+
             item {
-                Column(modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp)) {
-                    Text(
-                        text = "$greeting, Chef!",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Recently Added Meals",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { 
+                            isRecentMealsExpanded.value = !isRecentMealsExpanded.value
+                            authViewModel.setSectionExpanded("recent_meals", isRecentMealsExpanded.value)
+                        }
+                        .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "$greeting, Chef!",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Recently Added Meals",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Icon(
+                        imageVector = if (isRecentMealsExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isRecentMealsExpanded.value) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
-            item {
-                val recentRecipes = recipes.reversed().take(5)
-                if (recentRecipes.isEmpty()) {
-                    Text("No recipes yet. Add your first meal!", modifier = Modifier.padding(horizontal = 16.dp), color = Color.Gray)
-                } else {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(recentRecipes, key = { it.id }) { recipe ->
-                    RecipeCard(
-                        recipe = recipe,
-                        onClick = { selectedRecipeState.value = recipe },
-                        modifier = Modifier.animateItem()
-                    )
-                }
+            if (isRecentMealsExpanded.value) {
+                item {
+                    val recentRecipes = recipes.reversed().take(5)
+                    if (recentRecipes.isEmpty()) {
+                        Text("No recipes yet. Add your first meal!", modifier = Modifier.padding(horizontal = 16.dp), color = Color.Gray)
+                    } else {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(recentRecipes, key = { it.id }) { recipe ->
+                                RecipeCard(
+                                    recipe = recipe,
+                                    onClick = { selectedRecipeState.value = recipe },
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -312,59 +445,95 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             val favoriteRecipes = recipes.filter { it.isFavorite }
             if (favoriteRecipes.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "Your Favorites",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { 
+                                isFavoritesExpanded.value = !isFavoritesExpanded.value
+                                authViewModel.setSectionExpanded("favorites", isFavoritesExpanded.value)
+                            }
+                            .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        items(favoriteRecipes, key = { it.id }) { recipe ->
-                    RecipeCard(
-                        recipe = recipe,
-                        onClick = { selectedRecipeState.value = recipe },
-                        modifier = Modifier.animateItem()
-                    )
+                        Text(
+                            text = "Your Favorites",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Icon(
+                            imageVector = if (isFavoritesExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isFavoritesExpanded.value) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
+                if (isFavoritesExpanded.value) {
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(favoriteRecipes, key = { it.id }) { recipe ->
+                                RecipeCard(
+                                    recipe = recipe,
+                                    onClick = { selectedRecipeState.value = recipe },
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             item {
-                Text(
-                    text = "Explore All",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 12.dp),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { 
+                            isExploreAllExpanded.value = !isExploreAllExpanded.value
+                            authViewModel.setSectionExpanded("explore_all", isExploreAllExpanded.value)
+                        }
+                        .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Explore All",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Icon(
+                        imageVector = if (isExploreAllExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExploreAllExpanded.value) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
-            if (recipes.isEmpty() && !isRefreshing) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Your collection is empty.", color = Color.Gray)
+            if (isExploreAllExpanded.value) {
+                if (recipes.isEmpty() && !isRefreshing) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Your collection is empty.", color = Color.Gray)
+                        }
                     }
-                }
-            } else {
-                items(recipes.reversed(), key = { it.id }) { recipe ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
-                        RecipeItemRow(
-                            recipe = recipe,
-                            onDelete = { recipeToDeleteState.value = recipe },
-                            onClick = { selectedRecipeState.value = recipe }
-                        )
+                } else {
+                    items(recipes.reversed(), key = { it.id }) { recipe ->
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
+                            RecipeItemRow(
+                                recipe = recipe,
+                                onDelete = { recipeToDeleteState.value = recipe },
+                                onClick = { selectedRecipeState.value = recipe }
+                            )
+                        }
                     }
                 }
             }

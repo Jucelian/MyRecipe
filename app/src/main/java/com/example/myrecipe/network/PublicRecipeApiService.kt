@@ -1,0 +1,16 @@
+package com.example.myrecipe.network
+
+import com.example.myrecipe.model.MealDBResponse
+import retrofit2.http.GET
+import retrofit2.http.Query
+
+interface PublicRecipeApiService {
+    @GET("random.php")
+    suspend fun getRandomRecipe(): MealDBResponse
+
+    @GET("filter.php")
+    suspend fun getRecipesByCategory(@Query("c") category: String): MealDBResponse
+
+    @GET("lookup.php")
+    suspend fun getRecipeDetails(@Query("i") id: String): MealDBResponse
+}

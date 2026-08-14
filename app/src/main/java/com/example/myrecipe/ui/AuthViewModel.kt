@@ -152,4 +152,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _isLoggedIn.value = false
         _currentUser.value = null
     }
+
+    fun setSectionExpanded(sectionKey: String, isExpanded: Boolean) {
+        sharedPreferences.edit().putBoolean("section_$sectionKey", isExpanded).apply()
+    }
+
+    fun isSectionExpanded(sectionKey: String, defaultValue: Boolean = true): Boolean {
+        return sharedPreferences.getBoolean("section_$sectionKey", defaultValue)
+    }
 }

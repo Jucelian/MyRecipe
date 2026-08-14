@@ -49,6 +49,9 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
 
+    private val _dailyRecipes = MutableStateFlow<Map<String, List<Recipe>>>(emptyMap())
+    val dailyRecipes: StateFlow<Map<String, List<Recipe>>> = _dailyRecipes
+
     fun clearError() {
         _errorMessage.value = null
     }
@@ -56,6 +59,36 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     init {
         startAutoSync()
         startAutoRefresh()
+        fetchDailyRecipes()
+    }
+
+    private fun fetchDailyRecipes() {
+        viewModelScope.launch {
+            try {
+                val api = RetrofitClient.publicInstance
+                val categories = listOf("Breakfast", "Seafood", "Beef", "Dessert")
+                val results = mutableMapOf<String, List<Recipe>>()
+                
+                categories.forEach { cat ->
+                    val response = api.getRecipesByCategory(cat)
+                    val mealIds = response.meals?.take(5)?.map { it.idMeal } ?: emptyList()
+                    val details = mealIds.map { id ->
+                        api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                    }.filterNotNull()
+                    
+                    val uiCat = when(cat) {
+                        "Seafood" -> "Lunch"
+                        "Beef" -> "Dinner"
+                        "Dessert" -> "Sweet Treats"
+                        else -> cat
+                    }
+                    results[uiCat] = details
+                }
+                _dailyRecipes.value = results
+            } catch (e: Exception) {
+                Log.e("RecipeViewModel", "Failed to fetch daily recipes: ${e.message}")
+            }
+        }
     }
 
     private fun startAutoSync() {
