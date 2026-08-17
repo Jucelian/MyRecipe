@@ -76,15 +76,26 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 val seed = if (forceRandom) System.currentTimeMillis() else java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR).toLong()
                 val random = java.util.Random(seed)
                 
-                // Randomly select categories from the large pool
-                val lunchCat = mainMealPool[random.nextInt(mainMealPool.size)]
-                val dinnerCat = mainMealPool[random.nextInt(mainMealPool.size)]
-                
                 val results = mutableMapOf<String, List<Recipe>>()
                 
-                // Helper to fetch details for a list of meal IDs
-                suspend fun fetchDetails(ids: List<String>): List<Recipe> {
-                    return ids.map { id ->
+                // Helper to fetch random recipes from a list of categories
+                suspend fun fetchMixedRecipes(count: Int, pool: List<String>): List<Recipe> {
+                    val allMealIds = mutableListOf<String>()
+                    // Shuffle pool to get different categories each time
+                    val shuffledPool = pool.shuffled(random)
+                    
+                    for (cat in shuffledPool) {
+                        if (allMealIds.size >= count) break
+                        try {
+                            val response = api.getRecipesByCategory(cat)
+                            val ids = response.meals?.map { it.idMeal } ?: emptyList()
+                            allMealIds.addAll(ids)
+                        } catch (e: Exception) {
+                            Log.e("RecipeViewModel", "Failed to fetch category $cat: ${e.message}")
+                        }
+                    }
+                    
+                    return allMealIds.shuffled(random).take(count).map { id ->
                         api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
                     }.filterNotNull()
                 }
@@ -92,29 +103,22 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 // 1. Breakfast (Always Breakfast category)
                 val breakfastResponse = api.getRecipesByCategory("Breakfast")
                 val breakfastIds = breakfastResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
-                results["Breakfast"] = fetchDetails(breakfastIds)
+                results["Breakfast"] = breakfastIds.map { id ->
+                    api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                }.filterNotNull()
 
-                // 2. Lunch
-                val lunchResponse = api.getRecipesByCategory(lunchCat)
-                val lunchMealsAll = lunchResponse.meals?.shuffled(random) ?: emptyList()
-                val lunchIds = lunchMealsAll.take(5).map { it.idMeal }
-                results["Lunch ($lunchCat)"] = fetchDetails(lunchIds)
+                // 2. Lunch - Now a mix!
+                results["Lunch (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
 
-                // 3. Dinner
-                val dinnerResponse = api.getRecipesByCategory(dinnerCat)
-                val dinnerMealsAll = dinnerResponse.meals?.shuffled(random) ?: emptyList()
-                // If the category is the same as lunch, pick different recipes from it
-                val dinnerIds = if (lunchCat == dinnerCat && lunchMealsAll.size > 10) {
-                    dinnerMealsAll.drop(5).take(5).map { it.idMeal }
-                } else {
-                    dinnerMealsAll.take(5).map { it.idMeal }
-                }
-                results["Dinner ($dinnerCat)"] = fetchDetails(dinnerIds)
+                // 3. Dinner - Also a mix!
+                results["Dinner (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
 
                 // 4. Sweet Treats (Always Dessert category)
                 val dessertResponse = api.getRecipesByCategory("Dessert")
                 val dessertIds = dessertResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
-                results["Sweet Treats"] = fetchDetails(dessertIds)
+                results["Sweet Treats"] = dessertIds.map { id ->
+                    api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                }.filterNotNull()
 
                 _dailyRecipes.value = results
             } catch (e: Exception) {

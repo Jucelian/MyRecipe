@@ -237,13 +237,24 @@ fun Application.module() {
             val releaseFile = getUpdateFile("ChefMate_release.apk")
             val debugFile = getUpdateFile("ChefMate_debug.apk")
             
+            // Log what we found
+            println("DOWNLOAD: releaseFile found=${releaseFile != null}, debugFile found=${debugFile != null}")
+            
             val file = releaseFile ?: debugFile
             
             if (file != null && file.exists()) {
                 println("DOWNLOAD: Serving file ${file.absolutePath} (${file.length()} bytes)")
+                // Explicitly set content type for APK
+                call.response.header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
                 call.respondFile(file)
             } else {
                 println("DOWNLOAD ERROR: No APK found in expected locations.")
+                // List files in common spots to help debug 404
+                val updatesDir = File("updates")
+                if (updatesDir.exists()) println("INFO: Files in ./updates: ${updatesDir.list()?.joinToString()}")
+                val serverUpdatesDir = File("server/updates")
+                if (serverUpdatesDir.exists()) println("INFO: Files in ./server/updates: ${serverUpdatesDir.list()?.joinToString()}")
+                
                 call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
             }
         }
