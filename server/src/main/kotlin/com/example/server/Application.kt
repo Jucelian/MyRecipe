@@ -215,31 +215,30 @@ fun Application.module() {
         }
 
         get("/app/download") {
-            val cwd = File(".").absolutePath
-            println("DOWNLOAD: Request received. CWD: $cwd")
+            val name = "ChefMate_debug.apk"
+            println("DOWNLOAD: Request received for $name")
             
-            val releaseFile = getUpdateFile("ChefMate_release.apk")
-            val debugFile = getUpdateFile("ChefMate_debug.apk")
+            // Try to load as resource first (Reliable on Render)
+            val resourceStream = object {}.javaClass.classLoader.getResourceAsStream("updates/$name")
             
-            // Log what we found
-            println("DOWNLOAD: releaseFile found=${releaseFile != null}, debugFile found=${debugFile != null}")
-            
-            val file = releaseFile ?: debugFile
-            
-            if (file != null && file.exists()) {
-                println("DOWNLOAD: Serving file ${file.absolutePath} (${file.length()} bytes)")
-                // Explicitly set content type for APK
+            if (resourceStream != null) {
+                println("DOWNLOAD SUCCESS: Serving $name from resources")
                 call.response.header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
-                call.respondFile(file)
-            } else {
-                println("DOWNLOAD ERROR: No APK found in expected locations.")
-                // List files in common spots to help debug 404
-                val updatesDir = File("updates")
-                if (updatesDir.exists()) println("INFO: Files in ./updates: ${updatesDir.list()?.joinToString()}")
-                val serverUpdatesDir = File("server/updates")
-                if (serverUpdatesDir.exists()) println("INFO: Files in ./server/updates: ${serverUpdatesDir.list()?.joinToString()}")
+                call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=\"$name\"")
                 
-                call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
+                val bytes = resourceStream.readAllBytes()
+                call.respondBytes(bytes)
+            } else {
+                // Fallback to filesystem deep search
+                val file = getUpdateFile(name)
+                if (file != null && file.exists()) {
+                    println("DOWNLOAD SUCCESS: Serving $name from filesystem")
+                    call.response.header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
+                    call.respondFile(file)
+                } else {
+                    println("DOWNLOAD ERROR: $name not found in resources or filesystem")
+                    call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
+                }
             }
         }
 
@@ -266,20 +265,26 @@ fun Application.module() {
         get("/debug/apk") {
             val name = "ChefMate_debug.apk"
             val found = getUpdateFile(name)
+            val resource = object {}.javaClass.classLoader.getResource("updates/$name")
             
             val report = StringBuilder()
             report.append("CWD: ${File(".").absolutePath}\n\n")
-            report.append("Deep Search Result for $name:\n")
+            
+            report.append("1. Resource Check:\n")
+            report.append("Path: updates/$name\n")
+            report.append("Exists as Resource: ${resource != null}\n\n")
+            
+            report.append("2. Filesystem Deep Search:\n")
             if (found != null) {
                 report.append("FOUND: ${found.absolutePath}\n")
                 report.append("SIZE: ${found.length()} bytes\n")
             } else {
-                report.append("NOT FOUND ANYWHERE\n")
+                report.append("NOT FOUND IN FILESYSTEM\n")
             }
             
-            val resource = object {}.javaClass.classLoader.getResource("version.properties")
-            report.append("\nVersion File Check:\n")
-            report.append("Resource 'version.properties' exists: ${resource != null}\n")
+            val versionResource = object {}.javaClass.classLoader.getResource("version.properties")
+            report.append("\n3. Version File Check:\n")
+            report.append("Resource 'version.properties' exists: ${versionResource != null}\n")
             
             call.respondText(report.toString())
         }
