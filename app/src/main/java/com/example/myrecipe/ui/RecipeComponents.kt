@@ -186,11 +186,22 @@ fun RecipeApp(
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SearchBar(
-                        query = searchQueryState.value,
-                        onQueryChange = { searchQueryState.value = it },
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (selectedTabState.intValue == 1 || selectedTabState.intValue == 2) {
+                        SearchBar(
+                            query = searchQueryState.value,
+                            onQueryChange = { searchQueryState.value = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        // Title for Home screen
+                        Text(
+                            text = "ChefMate",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                     Spacer(Modifier.width(8.dp))
                     IconButton(
                         onClick = { authViewModel.logout() },
@@ -631,9 +642,19 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 
     val recipesState = viewModel.recipes.collectAsState()
     val categoriesState = viewModel.categories.collectAsState()
+    val publicResults by viewModel.publicSearchResults.collectAsState()
+    val isSearchingPublic by viewModel.isSearchingPublic.collectAsState()
+    
     val recipes = recipesState.value
     
-    val filteredRecipes = if (query.isEmpty()) {
+    // Trigger public search when query changes
+    LaunchedEffect(query) {
+        if (query.length >= 3) {
+            viewModel.searchPublicRecipes(query)
+        }
+    }
+
+    val filteredLocalRecipes = if (query.isEmpty()) {
         recipes
     } else {
         recipes.filter {
@@ -643,34 +664,90 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = if (query.isEmpty()) "Discover Recipes" else "Search Results",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-            color = MaterialTheme.colorScheme.onBackground
-        )
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text(
+                text = if (query.isEmpty()) "Discover Recipes" else "Search Results",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
 
-        if (filteredRecipes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(
-                    message = if (query.isEmpty()) "No recipes added yet." else "No recipes match your search.",
-                    icon = if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.SearchOff
+        // Section 1: Your Recipes
+        if (filteredLocalRecipes.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Your Collection",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(filteredRecipes) { recipe ->
+            items(filteredLocalRecipes) { recipe ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                     RecipeItemRow(
                         recipe = recipe,
                         onDelete = { recipeToDeleteState.value = recipe },
                         onClick = { selectedRecipeState.value = recipe }
                     )
                 }
+            }
+        }
+
+        // Section 2: Online Recipes
+        if (query.length >= 3) {
+            item {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Online Recipes",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (isSearchingPublic) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    }
+                }
+            }
+
+            if (publicResults.isEmpty() && !isSearchingPublic) {
+                item {
+                    Text(
+                        text = "No online recipes found for '$query'",
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        textAlign = TextAlign.Center,
+                        color = Color.Gray
+                    )
+                }
+            } else {
+                items(publicResults) { recipe ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        RecipeItemRow(
+                            recipe = recipe,
+                            onDelete = null, // Can't delete public recipes
+                            onClick = { selectedRecipeState.value = recipe }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (filteredLocalRecipes.isEmpty() && (query.length < 3 || (publicResults.isEmpty() && !isSearchingPublic))) {
+            item {
+                EmptyState(
+                    message = if (query.isEmpty()) "No recipes added yet." else "Keep typing to search online...",
+                    icon = if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.Search
+                )
             }
         }
     }
@@ -1016,7 +1093,7 @@ fun CategoryDetailScreen(categoryName: String, recipes: List<Recipe>, onBack: ()
 }
 
 @Composable
-fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
+fun RecipeItemRow(recipe: Recipe, onDelete: (() -> Unit)?, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -1105,11 +1182,21 @@ fun RecipeItemRow(recipe: Recipe, onDelete: () -> Unit, onClick: () -> Unit) {
                 }
             }
             
-            IconButton(
-                onClick = onDelete,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Recipe")
+            if (onDelete != null) {
+                IconButton(
+                    onClick = onDelete,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Recipe")
+                }
+            } else {
+                // If no delete, show a "Save" or "Public" indicator
+                Icon(
+                    Icons.Default.Public, 
+                    contentDescription = "Online", 
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(8.dp).size(20.dp)
+                )
             }
         }
     }

@@ -52,6 +52,12 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _dailyRecipes = MutableStateFlow<Map<String, List<Recipe>>>(emptyMap())
     val dailyRecipes: StateFlow<Map<String, List<Recipe>>> = _dailyRecipes
 
+    private val _publicSearchResults = MutableStateFlow<List<Recipe>>(emptyList())
+    val publicSearchResults: StateFlow<List<Recipe>> = _publicSearchResults
+
+    private val _isSearchingPublic = MutableStateFlow(false)
+    val isSearchingPublic: StateFlow<Boolean> = _isSearchingPublic
+
     fun clearError() {
         _errorMessage.value = null
     }
@@ -340,6 +346,63 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleFavorite(recipe: Recipe) {
         viewModelScope.launch {
             repository.updateRecipe(recipe.copy(isFavorite = !recipe.isFavorite))
+        }
+    }
+
+    fun searchPublicRecipes(query: String) {
+        if (query.isBlank()) {
+            _publicSearchResults.value = emptyList()
+            return
+        }
+        
+        viewModelScope.launch {
+            _isSearchingPublic.value = true
+            try {
+                val api = RetrofitClient.publicInstance
+                
+                // 1. Search by Name (Full details)
+                val nameResponse = api.searchRecipesByName(query)
+                val nameResults = nameResponse.meals?.map { it.toRecipe() } ?: emptyList()
+                
+                // 2. Search by Main Ingredient (Requires follow-up detail lookup)
+                val ingredientResponse = api.getRecipesByIngredient(query)
+                val ingredientMealIds = ingredientResponse.meals?.map { it.idMeal } ?: emptyList()
+                
+                // 3. Search by Category (If query matches a category name)
+                val categories = listOf("Beef", "Chicken", "Dessert", "Lamb", "Pasta", "Pork", "Seafood", "Side", "Starter", "Vegan", "Vegetarian", "Breakfast", "Goat")
+                val matchedCategory = categories.firstOrNull { it.contains(query, ignoreCase = true) }
+                val categoryMealIds = if (matchedCategory != null) {
+                    api.getRecipesByCategory(matchedCategory).meals?.map { it.idMeal } ?: emptyList()
+                } else {
+                    emptyList()
+                }
+                
+                // Combine and filter unique IDs that aren't already in nameResults
+                val existingIds = nameResults.map { it.id.removePrefix("mealdb_") }.toSet()
+                val uniqueNewIds = (ingredientMealIds + categoryMealIds).distinct().filter { it !in existingIds }.take(10)
+                
+                // Fetch full details for the new unique IDs
+                val extraResults = uniqueNewIds.map { id ->
+                    api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                }.filterNotNull()
+                
+                // Combine all results and filter for strict relevance
+                val allResults = (nameResults + extraResults).distinctBy { it.id }
+                
+                val filteredResults = allResults.filter { recipe ->
+                    recipe.title.contains(query, ignoreCase = true) ||
+                    recipe.description?.contains(query, ignoreCase = true) == true ||
+                    recipe.ingredients?.any { it.contains(query, ignoreCase = true) } == true ||
+                    recipe.category?.equals(query, ignoreCase = true) == true
+                }
+                
+                _publicSearchResults.value = filteredResults
+            } catch (e: Exception) {
+                Log.e("RecipeViewModel", "Public search failed: ${e.message}")
+                _publicSearchResults.value = emptyList()
+            } finally {
+                _isSearchingPublic.value = false
+            }
         }
     }
 

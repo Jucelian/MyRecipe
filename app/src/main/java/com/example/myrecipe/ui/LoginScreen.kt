@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -23,20 +24,24 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import com.example.myrecipe.R
 import com.example.myrecipe.BuildConfig
 
 @Composable
 fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
+    val context = LocalContext.current
     var username by remember { mutableStateOf(authViewModel.savedUsername.value) }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var rememberBiometric by remember { mutableStateOf(authViewModel.isBiometricEnabled.value) }
     var isSignUp by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
     val focusManager = LocalFocusManager.current
     val colorScheme = MaterialTheme.colorScheme
+    val biometricHelper = remember { BiometricHelper(context) }
 
     val onAuthAction = {
         if (username.isBlank() || password.isBlank()) {
@@ -47,6 +52,7 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
             if (isSignUp) {
                 authViewModel.signup(username, password) { success ->
                     if (success) {
+                        if (rememberBiometric) authViewModel.setBiometricEnabled(true, password)
                         onLoginSuccess()
                     } else {
                         isLoading = false
@@ -56,6 +62,7 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
             } else {
                 authViewModel.login(username, password) { success ->
                     if (success) {
+                        if (rememberBiometric) authViewModel.setBiometricEnabled(true, password)
                         onLoginSuccess()
                     } else {
                         isLoading = false
@@ -63,6 +70,29 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+
+    val onBiometricLogin = {
+        val activity = context as? FragmentActivity
+        if (activity != null) {
+            biometricHelper.showBiometricPrompt(
+                activity = activity,
+                onSuccess = {
+                    isLoading = true
+                    authViewModel.biometricLogin { success ->
+                        if (success) {
+                            onLoginSuccess()
+                        } else {
+                            isLoading = false
+                            errorMessage = "Biometric login failed"
+                        }
+                    }
+                },
+                onError = { err ->
+                    errorMessage = err
+                }
+            )
         }
     }
 
@@ -186,21 +216,54 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
                     Text(text = it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = rememberBiometric,
+                        onCheckedChange = { rememberBiometric = it }
+                    )
+                    Text(
+                        text = "Enable Biometric Login",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colorScheme.onBackground
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = onAuthAction,
-                    enabled = !isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                    } else {
-                        Text(if (isSignUp) "Sign Up" else "Sign In")
+                    Button(
+                        onClick = onAuthAction,
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        } else {
+                            Text(if (isSignUp) "Sign Up" else "Sign In")
+                        }
+                    }
+
+                    if (!isSignUp && authViewModel.canUseBiometricLogin()) {
+                        IconButton(
+                            onClick = onBiometricLogin,
+                            modifier = Modifier
+                                .size(50.dp)
+                                .background(colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+                        ) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = "Biometric Login", tint = colorScheme.primary)
+                        }
                     }
                 }
 

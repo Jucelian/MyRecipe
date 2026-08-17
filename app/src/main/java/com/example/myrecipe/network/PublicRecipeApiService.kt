@@ -8,6 +8,12 @@ interface PublicRecipeApiService {
     @GET("random.php")
     suspend fun getRandomRecipe(): MealDBResponse
 
+    @GET("search.php")
+    suspend fun searchRecipesByName(@Query("s") query: String): MealDBResponse
+
+    @GET("filter.php")
+    suspend fun getRecipesByIngredient(@Query("i") ingredient: String): MealDBResponse
+
     @GET("filter.php")
     suspend fun getRecipesByCategory(@Query("c") category: String): MealDBResponse
 

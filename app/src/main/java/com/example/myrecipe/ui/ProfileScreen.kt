@@ -52,6 +52,7 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val updateManager = remember { UpdateManager(context) }
+    val biometricHelper = remember { BiometricHelper(context) }
     
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -221,6 +222,39 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
                         subtitle = "Learn more about the project",
                         onClick = { showAboutDialog = true }
                     )
+                    
+                    if (biometricHelper.isBiometricAvailable()) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = colorScheme.onSurface.copy(alpha = 0.08f))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Fingerprint, contentDescription = null, tint = colorScheme.primary)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(text = "Biometric Login", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                                    Text(text = "Use fingerprint or face to sign in", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                }
+                            }
+                            Switch(
+                                checked = authViewModel.isBiometricEnabled.value,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) {
+                                        // We need the password to enable it securely. 
+                                        // For now, let's assume we can only enable it during login or if we have it.
+                                        // A better way is to ask for password now.
+                                        Toast.makeText(context, "Please re-login to enable biometric login securely", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        authViewModel.setBiometricEnabled(false)
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
 

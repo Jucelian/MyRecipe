@@ -1,10 +1,10 @@
 package com.example.myrecipe
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.fragment.app.FragmentActivity
 import com.example.myrecipe.ui.AuthViewModel
 import com.example.myrecipe.ui.LoginScreen
 import com.example.myrecipe.ui.RecipeApp
@@ -12,7 +12,7 @@ import com.example.myrecipe.ui.RecipeViewModel
 import com.example.myrecipe.ui.theme.MyRecipeTheme
 import com.example.myrecipe.network.RetrofitClient
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private var authViewModel: AuthViewModel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {

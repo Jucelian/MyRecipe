@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.biometric)
     implementation(libs.gson)
     implementation(libs.androidx.security.crypto)
 

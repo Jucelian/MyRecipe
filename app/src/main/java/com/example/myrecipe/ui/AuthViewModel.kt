@@ -34,6 +34,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _savedUsername = mutableStateOf(sharedPreferences.getString("saved_username", "") ?: "")
     val savedUsername: State<String> = _savedUsername
+
+    private val _isBiometricEnabled = mutableStateOf(sharedPreferences.getBoolean("biometric_enabled", false))
+    val isBiometricEnabled: State<Boolean> = _isBiometricEnabled
     
     val authToken: String? get() = sharedPreferences.getString("auth_token", null)
     private val refreshToken: String? get() = sharedPreferences.getString("refresh_token", null)
@@ -159,5 +162,30 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun isSectionExpanded(sectionKey: String, defaultValue: Boolean = true): Boolean {
         return sharedPreferences.getBoolean("section_$sectionKey", defaultValue)
+    }
+
+    fun setBiometricEnabled(enabled: Boolean, password: String? = null) {
+        val editor = sharedPreferences.edit().putBoolean("biometric_enabled", enabled)
+        if (enabled && password != null) {
+            editor.putString("saved_password", password)
+        } else if (!enabled) {
+            editor.remove("saved_password")
+        }
+        editor.apply()
+        _isBiometricEnabled.value = enabled
+    }
+
+    fun canUseBiometricLogin(): Boolean {
+        return _isBiometricEnabled.value && _savedUsername.value.isNotBlank() && sharedPreferences.getString("saved_password", null) != null
+    }
+
+    fun biometricLogin(onResult: (Boolean) -> Unit) {
+        val username = _savedUsername.value
+        val password = sharedPreferences.getString("saved_password", null)
+        if (username.isNotBlank() && password != null) {
+            login(username, password, onResult)
+        } else {
+            onResult(false)
+        }
     }
 }
