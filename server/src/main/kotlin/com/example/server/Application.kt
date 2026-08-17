@@ -152,41 +152,24 @@ fun Application.module() {
     if (!uploadDir.exists()) uploadDir.mkdirs()
     
     fun getUpdateFile(name: String): File? {
-        println("SEARCH: Starting search for $name")
-        // 1. Direct search in common locations
-        val paths = listOf(
-            "updates/$name",
-            "server/updates/$name",
-            "../updates/$name",
-            "../../updates/$name",
-            "src/main/resources/updates/$name"
-        )
-        for (path in paths) {
-            val f = File(path)
-            if (f.exists()) {
-                println("SEARCH SUCCESS: Found at $path")
-                return f
+        println("SEARCH: Starting deep search for $name")
+        val root = File(".")
+        // Recursively walk through all directories to find the file
+        val found = root.walkTopDown()
+            .onEnter { dir -> 
+                // Skip hidden folders and build folders to be fast
+                !dir.name.startsWith(".") && dir.name != "build" && dir.name != "gradle"
             }
-        }
+            .filter { it.name == name }
+            .firstOrNull()
         
-        // 2. Recursive search with simple loop (no lambda returns)
-        fun findFileRecursive(dir: File): File? {
-            val files = dir.listFiles() ?: return null
-            for (file in files) {
-                if (file.name == name) return file
-                if (file.isDirectory && !file.name.startsWith(".") && file.name != "build") {
-                    val found = findFileRecursive(file)
-                    if (found != null) return found
-                }
-            }
-            return null
-        }
-        
-        val found = findFileRecursive(File("."))
         if (found != null) {
-            println("SEARCH SUCCESS: Found deep at ${found.absolutePath}")
+            println("SEARCH SUCCESS: Found at ${found.absolutePath}")
         } else {
-            println("SEARCH FAILURE: $name not found anywhere in project")
+            println("SEARCH FAILURE: $name not found anywhere in ${root.absolutePath}")
+            // List what we DO see in the current directory for debugging
+            val topLevel = root.list()?.joinToString(", ") ?: "empty"
+            println("INFO: Top level files/folders: $topLevel")
         }
         return found
     }
@@ -214,7 +197,8 @@ fun Application.module() {
     routing {
         get("/app/version") {
             val host = call.request.host()
-            val proto = call.request.headers["X-Forwarded-Proto"] ?: "http"
+            // Force HTTPS for Render, otherwise use detected proto
+            val proto = if (host.contains("onrender.com")) "https" else (call.request.headers["X-Forwarded-Proto"] ?: "http")
             val baseUrl = "$proto://$host"
             
             val props = getVersionProps()
@@ -281,21 +265,21 @@ fun Application.module() {
 
         get("/debug/apk") {
             val name = "ChefMate_debug.apk"
-            val file1 = File("updates/$name")
-            val file2 = File("server/updates/$name")
-            val file3 = File("src/main/resources/updates/$name")
+            val found = getUpdateFile(name)
             
             val report = StringBuilder()
             report.append("CWD: ${File(".").absolutePath}\n\n")
-            report.append("Checking for $name:\n")
-            report.append("1. ./updates/$name -> ${file1.exists()}\n")
-            report.append("2. ./server/updates/$name -> ${file2.exists()}\n")
-            report.append("3. ./resources/updates/$name -> ${file3.exists()}\n")
+            report.append("Deep Search Result for $name:\n")
+            if (found != null) {
+                report.append("FOUND: ${found.absolutePath}\n")
+                report.append("SIZE: ${found.length()} bytes\n")
+            } else {
+                report.append("NOT FOUND ANYWHERE\n")
+            }
             
             val resource = object {}.javaClass.classLoader.getResource("version.properties")
             report.append("\nVersion File Check:\n")
             report.append("Resource 'version.properties' exists: ${resource != null}\n")
-            if (resource != null) report.append("Resource Path: ${resource.path}\n")
             
             call.respondText(report.toString())
         }
