@@ -59,31 +59,63 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     init {
         startAutoSync()
         startAutoRefresh()
-        fetchDailyRecipes()
+        fetchDailyRecipes(forceRandom = false)
     }
 
-    private fun fetchDailyRecipes() {
+    private fun fetchDailyRecipes(forceRandom: Boolean) {
         viewModelScope.launch {
             try {
                 val api = RetrofitClient.publicInstance
-                val categories = listOf("Breakfast", "Seafood", "Beef", "Dessert")
+                
+                // Expanded pool for Lunch and Dinner
+                val mainMealPool = listOf(
+                    "Beef", "Chicken", "Goat", "Lamb", "Pasta", 
+                    "Pork", "Seafood", "Vegetarian", "Vegan", "Miscellaneous"
+                )
+                
+                val seed = if (forceRandom) System.currentTimeMillis() else java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR).toLong()
+                val random = java.util.Random(seed)
+                
+                // Randomly select categories from the large pool
+                val lunchCat = mainMealPool[random.nextInt(mainMealPool.size)]
+                val dinnerCat = mainMealPool[random.nextInt(mainMealPool.size)]
+                
                 val results = mutableMapOf<String, List<Recipe>>()
                 
-                categories.forEach { cat ->
-                    val response = api.getRecipesByCategory(cat)
-                    val mealIds = response.meals?.take(5)?.map { it.idMeal } ?: emptyList()
-                    val details = mealIds.map { id ->
+                // Helper to fetch details for a list of meal IDs
+                suspend fun fetchDetails(ids: List<String>): List<Recipe> {
+                    return ids.map { id ->
                         api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
                     }.filterNotNull()
-                    
-                    val uiCat = when(cat) {
-                        "Seafood" -> "Lunch"
-                        "Beef" -> "Dinner"
-                        "Dessert" -> "Sweet Treats"
-                        else -> cat
-                    }
-                    results[uiCat] = details
                 }
+
+                // 1. Breakfast (Always Breakfast category)
+                val breakfastResponse = api.getRecipesByCategory("Breakfast")
+                val breakfastIds = breakfastResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
+                results["Breakfast"] = fetchDetails(breakfastIds)
+
+                // 2. Lunch
+                val lunchResponse = api.getRecipesByCategory(lunchCat)
+                val lunchMealsAll = lunchResponse.meals?.shuffled(random) ?: emptyList()
+                val lunchIds = lunchMealsAll.take(5).map { it.idMeal }
+                results["Lunch ($lunchCat)"] = fetchDetails(lunchIds)
+
+                // 3. Dinner
+                val dinnerResponse = api.getRecipesByCategory(dinnerCat)
+                val dinnerMealsAll = dinnerResponse.meals?.shuffled(random) ?: emptyList()
+                // If the category is the same as lunch, pick different recipes from it
+                val dinnerIds = if (lunchCat == dinnerCat && lunchMealsAll.size > 10) {
+                    dinnerMealsAll.drop(5).take(5).map { it.idMeal }
+                } else {
+                    dinnerMealsAll.take(5).map { it.idMeal }
+                }
+                results["Dinner ($dinnerCat)"] = fetchDetails(dinnerIds)
+
+                // 4. Sweet Treats (Always Dessert category)
+                val dessertResponse = api.getRecipesByCategory("Dessert")
+                val dessertIds = dessertResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
+                results["Sweet Treats"] = fetchDetails(dessertIds)
+
                 _dailyRecipes.value = results
             } catch (e: Exception) {
                 Log.e("RecipeViewModel", "Failed to fetch daily recipes: ${e.message}")
@@ -157,6 +189,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 // Fetch latest from server (which also pushes local changes)
                 repository.refreshData(owner)
+                // Also refresh daily picks with a fresh random shuffle
+                fetchDailyRecipes(forceRandom = true)
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to sync data: ${e.message}"
             } finally {
@@ -302,6 +336,28 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleFavorite(recipe: Recipe) {
         viewModelScope.launch {
             repository.updateRecipe(recipe.copy(isFavorite = !recipe.isFavorite))
+        }
+    }
+
+    fun savePublicRecipe(recipe: Recipe, category: String = "General") {
+        viewModelScope.launch {
+            try {
+                // Create a clean copy of the public recipe for the current user
+                val myRecipe = recipe.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    owner = currentOwner.value,
+                    category = category,
+                    isFavorite = false // Don't auto-favorite on save
+                )
+                
+                // Use existing addRecipe logic which handles image/video storage correctly
+                addRecipe(myRecipe)
+                
+                Log.d("RecipeViewModel", "Saved public recipe '${recipe.title}' to personal collection in category '$category'.")
+            } catch (e: Exception) {
+                Log.e("RecipeViewModel", "Failed to save public recipe: ${e.message}")
+                _errorMessage.value = "Failed to save recipe: ${e.message}"
+            }
         }
     }
 }

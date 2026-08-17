@@ -32,10 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -279,14 +281,42 @@ fun RecipeApp(
     }
 }
 
+@Composable
+fun EmptyState(message: String, icon: ImageVector) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.Gray,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
+    val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
+    val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
     
     val recipesState = viewModel.recipes.collectAsState()
+    val categoriesState = viewModel.categories.collectAsState()
     val isRefreshingState = viewModel.isRefreshing.collectAsState()
     val dailyRecipesState = viewModel.dailyRecipes.collectAsState()
     
@@ -424,7 +454,10 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                 item {
                     val recentRecipes = recipes.reversed().take(5)
                     if (recentRecipes.isEmpty()) {
-                        Text("No recipes yet. Add your first meal!", modifier = Modifier.padding(horizontal = 16.dp), color = Color.Gray)
+                        EmptyState(
+                            message = "No recipes yet.\nStart by adding your first meal!",
+                            icon = Icons.Default.RestaurantMenu
+                        )
                     } else {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -516,14 +549,10 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             if (isExploreAllExpanded.value) {
                 if (recipes.isEmpty() && !isRefreshing) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Your collection is empty.", color = Color.Gray)
-                        }
+                        EmptyState(
+                            message = "Your collection is empty.",
+                            icon = Icons.Default.Inventory2
+                        )
                     }
                 } else {
                     items(recipes.reversed(), key = { it.id }) { recipe ->
@@ -559,6 +588,22 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             onEdit = {
                 recipeToEditState.value = recipe
                 selectedRecipeState.value = null
+            },
+            onSave = {
+                recipeToSaveState.value = recipe
+                selectedRecipeState.value = null
+            }
+        )
+    }
+
+    recipeToSaveState.value?.let { recipe ->
+        SaveRecipeWithCategoryDialog(
+            categories = categoriesState.value,
+            onDismiss = { recipeToSaveState.value = null },
+            onSave = { category ->
+                viewModel.savePublicRecipe(recipe, category)
+                recipeToSaveState.value = null
+                Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -578,10 +623,14 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
 
 @Composable
 fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
+    val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
+    val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
+
     val recipesState = viewModel.recipes.collectAsState()
+    val categoriesState = viewModel.categories.collectAsState()
     val recipes = recipesState.value
     
     val filteredRecipes = if (query.isEmpty()) {
@@ -605,9 +654,9 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 
         if (filteredRecipes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = if (query.isEmpty()) "No recipes added yet." else "No recipes match your search.",
-                    color = Color.Gray
+                EmptyState(
+                    message = if (query.isEmpty()) "No recipes added yet." else "No recipes match your search.",
+                    icon = if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.SearchOff
                 )
             }
         } else {
@@ -645,6 +694,22 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
             onEdit = {
                 recipeToEditState.value = recipe
                 selectedRecipeState.value = null
+            },
+            onSave = {
+                recipeToSaveState.value = recipe
+                selectedRecipeState.value = null
+            }
+        )
+    }
+
+    recipeToSaveState.value?.let { recipe ->
+        SaveRecipeWithCategoryDialog(
+            categories = categoriesState.value,
+            onDismiss = { recipeToSaveState.value = null },
+            onSave = { category ->
+                viewModel.savePublicRecipe(recipe, category)
+                recipeToSaveState.value = null
+                Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -664,6 +729,7 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
 
 @Composable
 fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}) {
+    val context = LocalContext.current
     val selectedCategoryState = remember { mutableStateOf<String?>(null) }
     
     LaunchedEffect(selectedCategoryState.value) {
@@ -673,6 +739,7 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
     val showAddCategoryDialogState = remember { mutableStateOf(false) }
     val showDeleteConfirmationDialog = remember { mutableStateOf(false) }
     val categoryToDelete = remember { mutableStateOf<Category?>(null) }
+    val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
     
     val recipesState = viewModel.recipes.collectAsState()
     val categoriesState = viewModel.categories.collectAsState()
@@ -756,6 +823,22 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
                 onEdit = {
                     recipeToEditState.value = recipe
                     selectedRecipeForDetailState.value = null
+                },
+                onSave = {
+                    recipeToSaveState.value = recipe
+                    selectedRecipeForDetailState.value = null
+                }
+            )
+        }
+
+        recipeToSaveState.value?.let { recipe ->
+            SaveRecipeWithCategoryDialog(
+                categories = categoriesState.value,
+                onDismiss = { recipeToSaveState.value = null },
+                onSave = { category ->
+                    viewModel.savePublicRecipe(recipe, category)
+                    recipeToSaveState.value = null
+                    Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -1210,9 +1293,81 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: () -> Unit, onEdit: () -> Unit) {
+fun SaveRecipeWithCategoryDialog(
+    categories: List<Category>,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var selectedCategory by remember { mutableStateOf(categories.firstOrNull()?.name ?: "General") }
+    var expanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Save Recipe", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text("Select a category for this recipe:", style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedCategory,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Category") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        categories.forEach { category ->
+                            DropdownMenuItem(
+                                text = { Text(category.name) },
+                                onClick = {
+                                    selectedCategory = category.name
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(selectedCategory) },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun RecipeDetailDialog(
+    recipe: Recipe, 
+    onDismiss: () -> Unit, 
+    onToggleFavorite: () -> Unit, 
+    onEdit: () -> Unit,
+    onSave: (() -> Unit)? = null
+) {
     val isFavoriteState = remember { mutableStateOf(recipe.isFavorite) }
+    val isPublic = recipe.owner == "Public"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1231,18 +1386,31 @@ fun RecipeDetailDialog(recipe: Recipe, onDismiss: () -> Unit, onToggleFavorite: 
                     modifier = Modifier.weight(1f)
                 )
                 Row {
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Recipe", tint = MaterialTheme.colorScheme.primary)
+                    if (isPublic && onSave != null) {
+                        IconButton(onClick = onSave) {
+                            Icon(
+                                imageVector = Icons.Default.BookmarkAdd, 
+                                contentDescription = "Save to My Recipes", 
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else if (!isPublic) {
+                        IconButton(onClick = onEdit) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Recipe", tint = MaterialTheme.colorScheme.primary)
+                        }
                     }
-                    IconButton(onClick = {
-                        isFavoriteState.value = !isFavoriteState.value
-                        onToggleFavorite()
-                    }) {
-                        Icon(
-                            imageVector = if (isFavoriteState.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (isFavoriteState.value) Color.Red else Color.Gray
-                        )
+                    
+                    if (!isPublic) {
+                        IconButton(onClick = {
+                            isFavoriteState.value = !isFavoriteState.value
+                            onToggleFavorite()
+                        }) {
+                            Icon(
+                                imageVector = if (isFavoriteState.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (isFavoriteState.value) Color.Red else Color.Gray
+                            )
+                        }
                     }
                 }
             }
@@ -1524,6 +1692,40 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
                     Text("Select Video File")
                 }
 
+                // Image Preview (Modern Addition)
+                if (imageUriState.value != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUriState.value)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Selected Image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Small overlay to indicate it's a preview
+                        Surface(
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.5f)
+                        ) {
+                            IconButton(
+                                onClick = { imageUriState.value = null },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = videoLinkState.value,
                     onValueChange = { 
@@ -1774,6 +1976,40 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
                     Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Select Video File")
+                }
+
+                // Image Preview (Modern Addition)
+                if (imageUriState.value != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUriState.value)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Selected Image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Small overlay to indicate it's a preview
+                        Surface(
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.5f)
+                        ) {
+                            IconButton(
+                                onClick = { imageUriState.value = null },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
                 }
 
                 OutlinedTextField(
