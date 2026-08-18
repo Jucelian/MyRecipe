@@ -180,7 +180,12 @@ fun Application.module() {
                 try {
                     val request = call.receive<AiGenerateRequest>()
                     val seed = (Math.random() * 1000000).toInt()
-                    val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(request.prompt, "UTF-8")}?width=512&height=512&seed=$seed&model=flux"
+                    
+                    // Refine prompt for better avatar results (avoids turning objects into people)
+                    val refinedPrompt = "${request.prompt}, high quality avatar, 3d render style, centered, white background, masterpiece"
+                    
+                    val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(refinedPrompt, "UTF-8")}?width=512&height=512&seed=$seed&nologo=true"
+                    
                     val bytes = URL(imageUrl).readBytes()
                     val fileName = "ai_${java.util.UUID.randomUUID()}.jpg"
                     File(uploadDir, fileName).writeBytes(bytes)
