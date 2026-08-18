@@ -581,15 +581,41 @@ fun AiAvatarDialog(onDismiss: () -> Unit, onAvatarSelected: (String) -> Unit) {
                     }
                 } else if (generatedUrl != null) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    AsyncImage(
-                        model = generatedUrl,
-                        contentDescription = "Generated Avatar",
-                        modifier = Modifier
-                            .size(200.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .clip(RoundedCornerShape(16.dp)),
-                        contentScale = ContentScale.Crop
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AsyncImage(
+                            model = generatedUrl,
+                            contentDescription = "Generated Avatar",
+                            modifier = Modifier
+                                .size(200.dp)
+                                .clip(RoundedCornerShape(16.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    isGenerating = true
+                                    try {
+                                        val response = RetrofitClient.instance.generateAiAvatar(mapOf("prompt" to prompt))
+                                        val url = response["url"]
+                                        if (url != null) {
+                                            val baseUrl = RetrofitClient.BASE_URL.removeSuffix("/")
+                                            generatedUrl = "$baseUrl$url"
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Regeneration failed", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isGenerating = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Try Again")
+                        }
+                    }
                 }
             }
         },

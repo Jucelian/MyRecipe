@@ -181,10 +181,10 @@ fun Application.module() {
                     val request = call.receive<AiGenerateRequest>()
                     val seed = (Math.random() * 1000000).toInt()
                     
-                    // Refine prompt for better avatar results (avoids turning objects into people)
-                    val refinedPrompt = "${request.prompt}, high quality avatar, 3d render style, centered, white background, masterpiece"
+                    // Stronger prompt to avoid human characters and focus on the object
+                    val refinedPrompt = "A professional 3D icon of ${request.prompt}, isolated on white background, centered, no humans, no people, high detail, masterpiece, studio lighting"
                     
-                    val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(refinedPrompt, "UTF-8")}?width=512&height=512&seed=$seed&nologo=true"
+                    val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(refinedPrompt, "UTF-8")}?width=512&height=512&seed=$seed&nologo=true&model=flux"
                     
                     val bytes = URL(imageUrl).readBytes()
                     val fileName = "ai_${java.util.UUID.randomUUID()}.jpg"
