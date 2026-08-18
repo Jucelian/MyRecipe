@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,7 +33,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.myrecipe.ui.theme.ChefBackground
+import com.example.myrecipe.ui.theme.ChefSecondary
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -311,7 +315,7 @@ fun EmptyState(message: String, icon: ImageVector) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
     }
@@ -357,7 +361,7 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = { 
-            currentUser?.let { viewModel.refreshData(it.username) }
+            currentUser?.let { viewModel.refreshData(it.username, forceDailyRefresh = true) }
         },
         modifier = Modifier.fillMaxSize()
     ) {
@@ -463,7 +467,7 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             }
             if (isRecentMealsExpanded.value) {
                 item {
-                    val recentRecipes = recipes.reversed().take(5)
+                    val recentRecipes = recipes.take(5)
                     if (recentRecipes.isEmpty()) {
                         EmptyState(
                             message = "No recipes yet.\nStart by adding your first meal!",
@@ -566,7 +570,7 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                         )
                     }
                 } else {
-                    items(recipes.reversed(), key = { it.id }) { recipe ->
+                    items(recipes, key = { it.id }) { recipe ->
                         Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
                             RecipeItemRow(
                                 recipe = recipe,
@@ -814,8 +818,10 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
     }
     
     val showAddCategoryDialogState = remember { mutableStateOf(false) }
+    val showEditCategoryDialogState = remember { mutableStateOf(false) }
     val showDeleteConfirmationDialog = remember { mutableStateOf(false) }
     val categoryToDelete = remember { mutableStateOf<Category?>(null) }
+    val categoryToEdit = remember { mutableStateOf<Category?>(null) }
     val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
     
     val recipesState = viewModel.recipes.collectAsState()
@@ -856,6 +862,10 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
                     CategoryItem(
                         category = category.name,
                         onClick = { selectedCategoryState.value = category.name },
+                        onEdit = {
+                            categoryToEdit.value = category
+                            showEditCategoryDialogState.value = true
+                        },
                         onDelete = {
                             if (recipesInCategory.isNotEmpty()) {
                                 categoryToDelete.value = category
@@ -943,6 +953,19 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
         )
     }
 
+    if (showEditCategoryDialogState.value) {
+        categoryToEdit.value?.let { category ->
+            EditCategoryDialog(
+                category = category,
+                onDismiss = { showEditCategoryDialogState.value = false },
+                onCategoryUpdated = { newName ->
+                    viewModel.updateCategory(category.name, category.copy(name = newName, isSynced = false))
+                    showEditCategoryDialogState.value = false
+                }
+            )
+        }
+    }
+
     if (showDeleteConfirmationDialog.value) {
         categoryToDelete.value?.let { category ->
             DeleteCategoryConfirmationDialog(
@@ -1016,7 +1039,7 @@ fun DeleteRecipeConfirmationDialog(
 }
 
 @Composable
-fun CategoryItem(category: String, onClick: () -> Unit, onDelete: () -> Unit) {
+fun CategoryItem(category: String, onClick: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -1050,12 +1073,18 @@ fun CategoryItem(category: String, onClick: () -> Unit, onDelete: () -> Unit) {
                 modifier = Modifier.weight(1f)
             )
             IconButton(
+                onClick = onEdit,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit Category")
+            }
+            IconButton(
                 onClick = onDelete,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
             ) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete Category")
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1077,7 +1106,7 @@ fun CategoryDetailScreen(categoryName: String, recipes: List<Recipe>, onBack: ()
 
         if (recipes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No recipes in this category yet.", color = Color.Gray)
+                Text("No recipes in this category yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -1203,6 +1232,39 @@ fun RecipeItemRow(recipe: Recipe, onDelete: (() -> Unit)?, onClick: () -> Unit) 
 }
 
 @Composable
+fun EditCategoryDialog(category: Category, onDismiss: () -> Unit, onCategoryUpdated: (String) -> Unit) {
+    val categoryNameState = remember { mutableStateOf(category.name) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("Edit Category", fontWeight = FontWeight.Bold) },
+        text = {
+            OutlinedTextField(
+                value = categoryNameState.value,
+                onValueChange = { categoryNameState.value = it },
+                label = { Text("Category Name") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (categoryNameState.value.isNotBlank()) onCategoryUpdated(categoryNameState.value) },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
 fun AddCategoryDialog(onDismiss: () -> Unit, onCategoryAdded: (String) -> Unit) {
     val categoryNameState = remember { mutableStateOf("") }
     AlertDialog(
@@ -1238,10 +1300,12 @@ fun AddCategoryDialog(onDismiss: () -> Unit, onCategoryAdded: (String) -> Unit) 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val isDarkMode = MaterialTheme.colorScheme.surface == ChefSecondary 
+
     TextField(
         value = query,
         onValueChange = onQueryChange,
-        placeholder = { Text("Search your recipes...", color = Color.Gray.copy(alpha = 0.6f)) },
+        placeholder = { Text("Search your recipes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
         leadingIcon = {
             Icon(
                 Icons.Default.Search, 
@@ -1252,13 +1316,20 @@ fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier
         },
         modifier = modifier
             .height(56.dp)
+            .border(
+                width = if (isDarkMode) 1.dp else 0.dp,
+                color = if (isDarkMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
+                shape = CircleShape
+            )
             .clip(CircleShape),
         colors = TextFieldDefaults.colors(
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
             disabledIndicatorColor = Color.Transparent,
-            unfocusedContainerColor = Color.White,
-            focusedContainerColor = Color.White
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface
         ),
         singleLine = true,
         shape = CircleShape

@@ -19,8 +19,10 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MyRecipeTheme {
-                val viewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            val viewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            val isDarkMode by viewModel.isDarkMode
+            
+            MyRecipeTheme(darkTheme = isDarkMode) {
                 val recipeViewModel: RecipeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                 authViewModel = viewModel
 

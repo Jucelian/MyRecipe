@@ -16,6 +16,7 @@ object Recipes : Table("recipes") {
     val category = varchar("category", 100).nullable()
     val isFavorite = bool("isFavorite")
     val owner = varchar("owner", 50)
+    val createdAt = long("createdAt").default(System.currentTimeMillis())
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -23,6 +24,7 @@ object Recipes : Table("recipes") {
 object Users : Table("users") {
     val username = varchar("username", 50)
     val password = varchar("password", 255)
+    val avatarUri = varchar("avatarUri", 1024).nullable()
     val createdAt = long("createdate").default(System.currentTimeMillis())
 
     override val primaryKey = PrimaryKey(username)

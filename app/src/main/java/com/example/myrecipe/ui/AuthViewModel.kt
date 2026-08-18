@@ -37,6 +37,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isBiometricEnabled = mutableStateOf(sharedPreferences.getBoolean("biometric_enabled", false))
     val isBiometricEnabled: State<Boolean> = _isBiometricEnabled
+
+    private val _isDarkMode = mutableStateOf(sharedPreferences.getBoolean("dark_mode", false))
+    val isDarkMode: State<Boolean> = _isDarkMode
     
     val authToken: String? get() = sharedPreferences.getString("auth_token", null)
     private val refreshToken: String? get() = sharedPreferences.getString("refresh_token", null)
@@ -46,8 +49,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         if (_isLoggedIn.value) {
             val username = sharedPreferences.getString("saved_username", "") ?: ""
             val createdAt = sharedPreferences.getLong("created_at", 0L)
+            val avatarUri = sharedPreferences.getString("avatar_uri", null)
             if (username.isNotBlank()) {
-                _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null)
+                _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null, avatarUri)
             }
         }
         initSession()
@@ -82,8 +86,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val refreshToken = response.refreshToken
                 if (response.status == "success" && accessToken != null && refreshToken != null) {
                     val createdAt = response.createdAt ?: System.currentTimeMillis()
-                    saveAuthData(username, accessToken, refreshToken, createdAt)
-                    _currentUser.value = User(username, "", createdAt)
+                    val avatarUri = response.avatarUri
+                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri)
+                    _currentUser.value = User(username, "", createdAt, avatarUri)
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -105,8 +110,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val refreshToken = response.refreshToken
                 if (response.status == "success" && accessToken != null && refreshToken != null) {
                     val createdAt = response.createdAt ?: 0L
-                    saveAuthData(username, accessToken, refreshToken, createdAt)
-                    _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null)
+                    val avatarUri = response.avatarUri
+                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri)
+                    _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null, avatarUri)
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -137,14 +143,33 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun saveAuthData(username: String, accessToken: String, refreshToken: String, createdAt: Long) {
+    private fun saveAuthData(username: String, accessToken: String, refreshToken: String, createdAt: Long, avatarUri: String? = null) {
         sharedPreferences.edit()
             .putString("saved_username", username)
             .putString("auth_token", accessToken)
             .putString("refresh_token", refreshToken)
             .putLong("created_at", createdAt)
+            .putString("avatar_uri", avatarUri)
             .apply()
         _savedUsername.value = username
+    }
+
+    fun updateAvatar(uri: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val current = _currentUser.value ?: return@launch
+                val response = RetrofitClient.instance.updateUser(current.copy(avatarUri = uri))
+                if (response["status"] == "success") {
+                    sharedPreferences.edit().putString("avatar_uri", uri).apply()
+                    _currentUser.value = current.copy(avatarUri = uri)
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            } catch (e: Exception) {
+                onResult(false)
+            }
+        }
     }
 
     fun logout() {
@@ -187,5 +212,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             onResult(false)
         }
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("dark_mode", enabled).apply()
+        _isDarkMode.value = enabled
     }
 }

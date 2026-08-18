@@ -58,6 +58,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _isSearchingPublic = MutableStateFlow(false)
     val isSearchingPublic: StateFlow<Boolean> = _isSearchingPublic
 
+    private var lastDailyFetchDay = -1
+
     fun clearError() {
         _errorMessage.value = null
     }
@@ -65,10 +67,15 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     init {
         startAutoSync()
         startAutoRefresh()
+        // Initial fetch for the current day
         fetchDailyRecipes(forceRandom = false)
     }
 
     private fun fetchDailyRecipes(forceRandom: Boolean) {
+        val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+        if (!forceRandom && currentDay == lastDailyFetchDay) return
+        
+        lastDailyFetchDay = currentDay
         viewModelScope.launch {
             try {
                 val api = RetrofitClient.publicInstance
@@ -79,19 +86,21 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                     "Pork", "Seafood", "Vegetarian", "Vegan", "Miscellaneous"
                 )
                 
-                val seed = if (forceRandom) System.currentTimeMillis() else java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR).toLong()
+                // Better seeding: Combine Year and Day to ensure it's unique every single day forever
+                val calendar = java.util.Calendar.getInstance()
+                val dateSeed = calendar.get(java.util.Calendar.YEAR) * 1000L + calendar.get(java.util.Calendar.DAY_OF_YEAR)
+                
+                val seed = if (forceRandom) System.currentTimeMillis() else dateSeed
                 val random = java.util.Random(seed)
                 
                 val results = mutableMapOf<String, List<Recipe>>()
                 
-                // Helper to fetch random recipes from a list of categories
+                // Helper to fetch random recipes from a list of categories with strict dessert filtering
                 suspend fun fetchMixedRecipes(count: Int, pool: List<String>): List<Recipe> {
                     val allMealIds = mutableListOf<String>()
-                    // Shuffle pool to get different categories each time
                     val shuffledPool = pool.shuffled(random)
                     
                     for (cat in shuffledPool) {
-                        if (allMealIds.size >= count) break
                         try {
                             val response = api.getRecipesByCategory(cat)
                             val ids = response.meals?.map { it.idMeal } ?: emptyList()
@@ -101,14 +110,26 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                     
-                    return allMealIds.shuffled(random).take(count).map { id ->
-                        api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
-                    }.filterNotNull()
+                    val finalResults = mutableListOf<Recipe>()
+                    val shuffledIds = allMealIds.shuffled(random)
+                    
+                    for (id in shuffledIds) {
+                        if (finalResults.size >= count) break
+                        val detailResponse = api.getRecipeDetails(id)
+                        val meal = detailResponse.meals?.firstOrNull()
+                        
+                        if (meal != null && meal.strCategory != "Dessert") {
+                            finalResults.add(meal.toRecipe())
+                        }
+                    }
+                    return finalResults
                 }
 
                 // 1. Breakfast (Always Breakfast category)
                 val breakfastResponse = api.getRecipesByCategory("Breakfast")
-                val breakfastIds = breakfastResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
+                // Use a different seed sequence for breakfast so it doesn't collide with mixed meals
+                val breakfastRandom = java.util.Random(seed + 123) 
+                val breakfastIds = breakfastResponse.meals?.shuffled(breakfastRandom)?.take(5)?.map { it.idMeal } ?: emptyList()
                 results["Breakfast"] = breakfastIds.map { id ->
                     api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
                 }.filterNotNull()
@@ -117,11 +138,14 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 results["Lunch (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
 
                 // 3. Dinner - Also a mix!
+                // Add an offset to seed so Dinner is different from Lunch if they share categories
+                val dinnerRandom = java.util.Random(seed + 999)
                 results["Dinner (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
 
                 // 4. Sweet Treats (Always Dessert category)
                 val dessertResponse = api.getRecipesByCategory("Dessert")
-                val dessertIds = dessertResponse.meals?.shuffled(random)?.take(5)?.map { it.idMeal } ?: emptyList()
+                val dessertRandom = java.util.Random(seed + 456)
+                val dessertIds = dessertResponse.meals?.shuffled(dessertRandom)?.take(5)?.map { it.idMeal } ?: emptyList()
                 results["Sweet Treats"] = dessertIds.map { id ->
                     api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
                 }.filterNotNull()
@@ -191,7 +215,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = emptyList()
     )
 
-    fun refreshData(owner: String) {
+    fun refreshData(owner: String, forceDailyRefresh: Boolean = false) {
         if (owner.isBlank() || _isRefreshing.value) return
         currentOwner.value = owner
         viewModelScope.launch {
@@ -199,8 +223,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 // Fetch latest from server (which also pushes local changes)
                 repository.refreshData(owner)
-                // Also refresh daily picks with a fresh random shuffle
-                fetchDailyRecipes(forceRandom = true)
+                // Refresh daily picks if new day or forced
+                fetchDailyRecipes(forceRandom = forceDailyRefresh)
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to sync data: ${e.message}"
             } finally {
@@ -333,6 +357,16 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateCategory(oldName: String, category: Category) {
+        viewModelScope.launch {
+            try {
+                repository.updateCategory(oldName, category)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to update category: ${e.message}"
+            }
+        }
+    }
+
     fun deleteCategory(category: Category, deleteRecipes: Boolean = false) {
         viewModelScope.launch {
             try {
@@ -414,7 +448,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                     id = java.util.UUID.randomUUID().toString(),
                     owner = currentOwner.value,
                     category = category,
-                    isFavorite = false // Don't auto-favorite on save
+                    isFavorite = false,
+                    createdAt = System.currentTimeMillis()
                 )
                 
                 // Use existing addRecipe logic which handles image/video storage correctly

@@ -20,18 +20,35 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.myrecipe.BuildConfig
+import com.example.myrecipe.R
 import com.example.myrecipe.model.UpdateInfo
+import com.example.myrecipe.network.RetrofitClient
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.launch
+import android.net.Uri
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 
 @Composable
 fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel) {
@@ -58,6 +75,96 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var isCheckingUpdates by remember { mutableStateOf(false) }
+    var isUploadingAvatar by remember { mutableStateOf(false) }
+    var showAvatarSheet by remember { mutableStateOf(false) }
+    var showAiDialog by remember { mutableStateOf(false) }
+
+    val avatarLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                isUploadingAvatar = true
+                try {
+                    val file = saveUriToTempFile(context, it)
+                    if (file != null) {
+                        val requestFile = file.asRequestBody("image/*".toMediaTypeOrNull())
+                        val body = MultipartBody.Part.createFormData("image", file.name, requestFile)
+                        val uploadResponse = RetrofitClient.instance.uploadImage(body)
+                        val relativeUrl = uploadResponse["url"]
+                        if (relativeUrl != null) {
+                            val baseUrl = RetrofitClient.BASE_URL.removeSuffix("/")
+                            val remoteUri = "$baseUrl$relativeUrl"
+                            authViewModel.updateAvatar(remoteUri) { success ->
+                                if (success) {
+                                    Toast.makeText(context, "Profile picture updated!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isUploadingAvatar = false
+                }
+            }
+        }
+    }
+
+    // Re-using the camera logic from RecipeComponents if needed, or keeping it local
+    val tempCameraUri = remember { mutableStateOf<Uri?>(null) }
+    
+    val cameraActionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            tempCameraUri.value?.let { uri ->
+                scope.launch {
+                    isUploadingAvatar = true
+                    try {
+                        val file = saveUriToTempFile(context, uri)
+                        if (file != null) {
+                            val requestFile = file.asRequestBody("image/*".toMediaTypeOrNull())
+                            val body = MultipartBody.Part.createFormData("image", file.name, requestFile)
+                            val uploadResponse = RetrofitClient.instance.uploadImage(body)
+                            val relativeUrl = uploadResponse["url"]
+                            if (relativeUrl != null) {
+                                val baseUrl = RetrofitClient.BASE_URL.removeSuffix("/")
+                                val remoteUri = "$baseUrl$relativeUrl"
+                                authViewModel.updateAvatar(remoteUri) { s ->
+                                    if (s) Toast.makeText(context, "Photo updated!", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Camera upload failed", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        isUploadingAvatar = false
+                    }
+                }
+            }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Permission granted, now we can launch the camera
+            val file = File(context.cacheDir, "camera_profile.jpg")
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            tempCameraUri.value = uri
+            cameraActionLauncher.launch(uri)
+        } else {
+            Toast.makeText(context, "Camera permission is required to take a photo", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val memberSinceDate = user?.createdAt?.let {
         SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(it))
@@ -94,24 +201,62 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
                 modifier = Modifier
                     .size(120.dp)
                     .shadow(8.dp, CircleShape)
-                    .border(4.dp, Color.White, CircleShape),
+                    .border(4.dp, Color.White, CircleShape)
+                    .clickable { showAvatarSheet = true },
                 shape = CircleShape,
                 color = colorScheme.surface
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(4.dp)
                         .clip(CircleShape)
                         .background(colorScheme.primary.copy(alpha = 0.1f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        modifier = Modifier.size(70.dp),
-                        tint = colorScheme.primary
-                    )
+                    if (isUploadingAvatar) {
+                        CircularProgressIndicator(modifier = Modifier.size(40.dp))
+                    } else if (user?.avatarUri != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(user.avatarUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Profile Picture",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            placeholder = painterResource(R.drawable.chefmate_logo),
+                            error = painterResource(R.drawable.chefmate_logo)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(70.dp),
+                            tint = colorScheme.primary
+                        )
+                    }
+                    
+                    // Edit Overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth().height(30.dp)
+                        ) {
+                            Text(
+                                "EDIT", 
+                                color = Color.White, 
+                                fontSize = 10.sp, 
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
             
@@ -223,6 +368,32 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
                         onClick = { showAboutDialog = true }
                     )
                     
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = colorScheme.onSurface.copy(alpha = 0.08f))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = if (authViewModel.isDarkMode.value) Icons.Default.DarkMode else Icons.Default.LightMode, 
+                                contentDescription = null, 
+                                tint = colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(text = "Dark Mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                                Text(text = "Toggle dark/light appearance", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            }
+                        }
+                        Switch(
+                            checked = authViewModel.isDarkMode.value,
+                            onCheckedChange = { authViewModel.setDarkMode(it) }
+                        )
+                    }
+                    
                     if (biometricHelper.isBiometricAvailable()) {
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = colorScheme.onSurface.copy(alpha = 0.08f))
                         Row(
@@ -244,9 +415,6 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
                                 checked = authViewModel.isBiometricEnabled.value,
                                 onCheckedChange = { enabled ->
                                     if (enabled) {
-                                        // We need the password to enable it securely. 
-                                        // For now, let's assume we can only enable it during login or if we have it.
-                                        // A better way is to ask for password now.
                                         Toast.makeText(context, "Please re-login to enable biometric login securely", Toast.LENGTH_LONG).show()
                                     } else {
                                         authViewModel.setBiometricEnabled(false)
@@ -335,6 +503,209 @@ fun ProfileScreen(authViewModel: AuthViewModel, recipeViewModel: RecipeViewModel
 
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+
+    if (showAvatarSheet) {
+        ProfilePictureSheet(
+            onDismiss = { showAvatarSheet = false },
+            onAction = { action ->
+                showAvatarSheet = false
+                when (action) {
+                    "camera" -> {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            val file = File(context.cacheDir, "camera_profile.jpg")
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                            tempCameraUri.value = uri
+                            cameraActionLauncher.launch(uri)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    }
+                    "gallery" -> avatarLauncher.launch("image/*")
+                    "delete" -> {
+                        authViewModel.updateAvatar("") { s ->
+                            if (s) Toast.makeText(context, "Profile picture removed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    "ai" -> showAiDialog = true
+                    else -> Toast.makeText(context, "Coming soon!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showAiDialog) {
+        AiAvatarDialog(
+            onDismiss = { showAiDialog = false },
+            onAvatarSelected = { remoteUri ->
+                showAiDialog = false
+                authViewModel.updateAvatar(remoteUri) { success ->
+                    if (success) Toast.makeText(context, "AI avatar set!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AiAvatarDialog(onDismiss: () -> Unit, onAvatarSelected: (String) -> Unit) {
+    var prompt by remember { mutableStateOf("") }
+    var isGenerating by remember { mutableStateOf(false) }
+    var generatedUrl by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text("AI Avatar Generator", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Describe how you want your avatar to look:", style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    placeholder = { Text("e.g. A chef with a cat hat") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                
+                if (isGenerating) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (generatedUrl != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    AsyncImage(
+                        model = generatedUrl,
+                        contentDescription = "Generated Avatar",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (generatedUrl != null) {
+                Button(onClick = { onAvatarSelected(generatedUrl!!) }) {
+                    Text("Set as Profile")
+                }
+            } else {
+                Button(
+                    onClick = {
+                        if (prompt.isNotBlank()) {
+                            scope.launch {
+                                isGenerating = true
+                                try {
+                                    val response = RetrofitClient.instance.generateAiAvatar(mapOf("prompt" to prompt))
+                                    val url = response["url"]
+                                    if (url != null) {
+                                        val baseUrl = RetrofitClient.BASE_URL.removeSuffix("/")
+                                        generatedUrl = "$baseUrl$url"
+                                    }
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Generation failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isGenerating = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isGenerating && prompt.isNotBlank()
+                ) {
+                    Text("Generate")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfilePictureSheet(onDismiss: () -> Unit, onAction: (String) -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
+                Text(
+                    "Profile picture",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = { onAction("delete") }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            SheetOption(Icons.Default.PhotoCamera, "Camera") { onAction("camera") }
+            SheetOption(Icons.Default.Photo, "Gallery") { onAction("gallery") }
+            SheetOption(Icons.Default.Share, "Import from Instagram") { onAction("instagram") }
+            SheetOption(Icons.Default.Facebook, "Import from Facebook") { onAction("facebook") }
+            SheetOption(Icons.Default.AutoAwesome, "AI images") { onAction("ai") }
+        }
+    }
+}
+
+@Composable
+fun SheetOption(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurface)
+        Spacer(modifier = Modifier.width(24.dp))
+        Text(text = label, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+private fun saveUriToTempFile(context: android.content.Context, uri: Uri): File? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val file = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
+        val outputStream = FileOutputStream(file)
+        inputStream.use { input ->
+            outputStream.use { output ->
+                input.copyTo(output)
+            }
+        }
+        file
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
     }
 }
 

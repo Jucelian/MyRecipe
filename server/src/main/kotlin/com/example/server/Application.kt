@@ -27,6 +27,8 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.util.Properties
+import java.net.URL
+import java.net.URLEncoder
 
 @Serializable
 data class RecipeDTO(
@@ -44,11 +46,17 @@ data class RecipeDTO(
     val category: String? = "General",
     @SerialName("isFavorite")
     val isFavorite: Boolean = false,
-    val owner: String = ""
+    val owner: String = "",
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Serializable
-data class UserDTO(val username: String, val password: String)
+data class UserDTO(
+    val username: String, 
+    val password: String = "", 
+    @SerialName("avatarUri")
+    val avatarUri: String? = null
+)
 
 @Serializable
 data class CategoryDTO(
@@ -63,11 +71,12 @@ data class TokenResponse(
     val accessToken: String? = null,
     val refreshToken: String? = null,
     val createdAt: Long? = null,
+    val avatarUri: String? = null,
     val message: String? = null
 )
 
 @Serializable
-data class RefreshRequest(val refreshToken: String)
+data class AiGenerateRequest(val prompt: String)
 
 @Serializable
 data class UpdateInfo(
@@ -78,570 +87,163 @@ data class UpdateInfo(
 )
 
 fun main() {
-    initDatabase() // Initialize DB before starting server
+    initDatabase()
     val port = System.getenv("PORT")?.toInt() ?: 8080
-    embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
-        .start(wait = true)
+    embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module).start(wait = true)
 }
 
 fun Application.module() {
     val jwtSecret = System.getenv("JWT_SECRET") ?: "chefmate-secret-key-1234567890"
     val jwtIssuer = "https://chefmate.com/"
     val jwtAudience = "chefmate-users"
-    val jwtRealm = "Access to recipes"
 
     install(ContentNegotiation) {
-        json(Json {
-            prettyPrint = true
-            isLenient = true
-            ignoreUnknownKeys = true
-        })
+        json(Json { prettyPrint = true; isLenient = true; ignoreUnknownKeys = true })
     }
-
-    // Increase max request size for videos (e.g., 50MB)
-    // Note: Render free tier might have its own limits
-    // install(RequestSizeLimit) { maxContentLength = 52428800 } 
-    // In Ktor 3.x, use double configuration or plugins if needed. 
-    // Actually, by default it's usually enough for smaller clips, but let's check.
-    // For now I'll leave it as is unless it fails, but I'll add a comment.
 
     install(Authentication) {
         jwt("auth-jwt") {
-            realm = jwtRealm
-            verifier(
-                JWT
-                    .require(Algorithm.HMAC256(jwtSecret))
-                    .withAudience(jwtAudience)
-                    .withIssuer(jwtIssuer)
-                    .build()
-            )
+            realm = "Access to recipes"
+            verifier(JWT.require(Algorithm.HMAC256(jwtSecret)).withAudience(jwtAudience).withIssuer(jwtIssuer).build())
             validate { credential ->
-                if (credential.payload.getClaim("username").asString() != "") {
-                    JWTPrincipal(credential.payload)
-                } else {
-                    null
-                }
+                if (credential.payload.getClaim("username").asString() != "") JWTPrincipal(credential.payload) else null
             }
         }
     }
     
-    fun generateAccessToken(username: String): String {
-        return JWT.create()
-            .withAudience(jwtAudience)
-            .withIssuer(jwtIssuer)
-            .withClaim("username", username)
-            .withExpiresAt(java.util.Date(System.currentTimeMillis() + 900000)) // 15 minutes
-            .sign(Algorithm.HMAC256(jwtSecret))
-    }
+    fun generateAccessToken(username: String) = JWT.create()
+        .withAudience(jwtAudience).withIssuer(jwtIssuer).withClaim("username", username)
+        .withExpiresAt(java.util.Date(System.currentTimeMillis() + 900000)).sign(Algorithm.HMAC256(jwtSecret))
 
     fun generateRefreshToken(username: String): String {
         val token = java.util.UUID.randomUUID().toString()
-        val expiry = System.currentTimeMillis() + 2592000000 // 30 days
-        transaction {
-            RefreshTokens.insert {
-                it[RefreshTokens.username] = username
-                it[RefreshTokens.token] = token
-                it[RefreshTokens.expiresAt] = expiry
-            }
-        }
+        transaction { RefreshTokens.insert { it[RefreshTokens.username] = username; it[RefreshTokens.token] = token; it[RefreshTokens.expiresAt] = System.currentTimeMillis() + 2592000000 } }
         return token
     }
     
-    // DB already initialized in main
     val uploadDir = File("uploads")
     if (!uploadDir.exists()) uploadDir.mkdirs()
-    
-    fun getUpdateFile(name: String): File? {
-        println("SEARCH: Starting deep search for $name")
-        val root = File(".")
-        // Recursively walk through all directories to find the file
-        val found = root.walkTopDown()
-            .onEnter { dir -> 
-                // Skip hidden folders and build folders to be fast
-                !dir.name.startsWith(".") && dir.name != "build" && dir.name != "gradle"
-            }
-            .filter { it.name == name }
-            .firstOrNull()
-        
-        if (found != null) {
-            println("SEARCH SUCCESS: Found at ${found.absolutePath}")
-        } else {
-            println("SEARCH FAILURE: $name not found anywhere in ${root.absolutePath}")
-            // List what we DO see in the current directory for debugging
-            val topLevel = root.list()?.joinToString(", ") ?: "empty"
-            println("INFO: Top level files/folders: $topLevel")
-        }
-        return found
-    }
-
-    fun getVersionProps(): Properties {
-        val props = Properties()
-        try {
-            val resourceStream = object {}.javaClass.classLoader.getResourceAsStream("version.properties")
-            if (resourceStream != null) {
-                props.load(resourceStream)
-                println("SUCCESS: Loaded version.properties from resources. Code: ${props.getProperty("versionCode")}")
-            } else {
-                println("WARNING: version.properties not found in resources. Trying filesystem...")
-                val file = File("version.properties")
-                if (file.exists()) {
-                    file.inputStream().use { props.load(it) }
-                }
-            }
-        } catch (e: Exception) {
-            println("ERROR: Failed to load version.properties: ${e.message}")
-        }
-        return props
-    }
 
     routing {
+        get("/") { call.respondText("ChefMate Server is Live!") }
+        get("/health") { call.respond(mapOf("status" to "ok")) }
+        
         get("/app/version") {
-            val host = call.request.host()
-            // Force HTTPS for Render, otherwise use detected proto
-            val proto = if (host.contains("onrender.com")) "https" else (call.request.headers["X-Forwarded-Proto"] ?: "http")
-            val baseUrl = "$proto://$host"
-            
-            val props = getVersionProps()
-            val vCode = props.getProperty("versionCode", "1").toInt()
-            val vName = props.getProperty("versionName", "1.0")
-            val notes = props.getProperty("releaseNotes", "New update available")
-            
+            val props = Properties()
+            object {}.javaClass.classLoader.getResourceAsStream("version.properties")?.use { props.load(it) }
             call.respond(UpdateInfo(
-                versionCode = vCode, 
-                versionName = vName,
-                updateUrl = "$baseUrl/app/download",
-                releaseNotes = notes
+                props.getProperty("versionCode", "1").toInt(),
+                props.getProperty("versionName", "1.0"),
+                "https://${call.request.host()}/app/download",
+                props.getProperty("releaseNotes", "New update")
             ))
         }
 
-        get("/app/download") {
-            val name = "ChefMate_debug.apk"
-            println("DOWNLOAD: Request received for $name")
-            
-            // Try to load as resource first (Reliable on Render)
-            val resourceStream = object {}.javaClass.classLoader.getResourceAsStream("updates/$name")
-            
-            if (resourceStream != null) {
-                println("DOWNLOAD SUCCESS: Serving $name from resources")
-                call.response.header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
-                call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=\"$name\"")
-                
-                val bytes = resourceStream.readAllBytes()
-                call.respondBytes(bytes)
-            } else {
-                // Fallback to filesystem deep search
-                val file = getUpdateFile(name)
-                if (file != null && file.exists()) {
-                    println("DOWNLOAD SUCCESS: Serving $name from filesystem")
-                    call.response.header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
-                    call.respondFile(file)
-                } else {
-                    println("DOWNLOAD ERROR: $name not found in resources or filesystem")
-                    call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
-                }
-            }
-        }
-
-        // Custom route for /uploads to handle local vs Supabase fallback
         get("/uploads/{name}") {
-            val fileName = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-            val file = File(uploadDir, fileName)
-            
-            if (file.exists()) {
-                // If it exists locally (Fast), serve it
-                call.respondFile(file)
-            } else {
-                // If missing (Render wiped it), fallback to Supabase
-                val supabaseUrl = System.getenv("SUPABASE_URL")?.removeSuffix("/") ?: ""
-                if (supabaseUrl.isNotBlank()) {
-                    val fallbackUrl = "$supabaseUrl/storage/v1/object/public/recipe-media/$fileName"
-                    call.respondRedirect(fallbackUrl)
-                } else {
-                    call.respond(HttpStatusCode.NotFound)
-                }
-            }
-        }
-
-        get("/debug/apk") {
-            val name = "ChefMate_debug.apk"
-            val found = getUpdateFile(name)
-            val resource = object {}.javaClass.classLoader.getResource("updates/$name")
-            
-            val report = StringBuilder()
-            report.append("CWD: ${File(".").absolutePath}\n\n")
-            
-            report.append("1. Resource Check:\n")
-            report.append("Path: updates/$name\n")
-            report.append("Exists as Resource: ${resource != null}\n\n")
-            
-            report.append("2. Filesystem Deep Search:\n")
-            if (found != null) {
-                report.append("FOUND: ${found.absolutePath}\n")
-                report.append("SIZE: ${found.length()} bytes\n")
-            } else {
-                report.append("NOT FOUND IN FILESYSTEM\n")
-            }
-            
-            val versionResource = object {}.javaClass.classLoader.getResource("version.properties")
-            report.append("\n3. Version File Check:\n")
-            report.append("Resource 'version.properties' exists: ${versionResource != null}\n")
-            
-            call.respondText(report.toString())
-        }
-
-        get("/debug/files") {
-            val report = StringBuilder()
-            fun walk(dir: File, depth: Int) {
-                if (depth > 3) return
-                dir.listFiles()?.forEach { file ->
-                    val indent = "  ".repeat(depth)
-                    if (file.isDirectory) {
-                        if (file.name != ".git" && file.name != "build" && file.name != ".gradle") {
-                            report.append("$indent[DIR] ${file.name}\n")
-                            walk(file, depth + 1)
-                        }
-                    } else {
-                        report.append("$indent${file.name} (${file.length()} bytes)\n")
-                    }
-                }
-            }
-            report.append("File Structure (Root):\n")
-            walk(File("."), 0)
-            call.respondText(report.toString())
-        }
-
-        get("/debug/db") {
-            try {
-                val recipeCount = transaction { Recipes.selectAll().count() }
-                val categoryCount = transaction { Categories.selectAll().count() }
-                call.respond(mapOf(
-                    "recipes_count" to recipeCount.toString(),
-                    "categories_count" to categoryCount.toString(),
-                    "database" to "connected"
-                ))
-            } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Unknown DB error")))
-            }
-        }
-
-        get("/") {
-            call.respondText("Server is running!")
-        }
-
-        authenticate("auth-jwt") {
-            val supabaseService = SupabaseService()
-            post("/upload") {
-                try {
-                    val multipart = call.receiveMultipart()
-                    var fileName = ""
-                    var fileBytes: ByteArray? = null
-                    
-                    multipart.forEachPart { part ->
-                        if (part is PartData.FileItem) {
-                            val originalName = part.originalFileName ?: "file.bin"
-                            val extension = originalName.substringAfterLast(".", "bin")
-                            fileName = "file_${java.util.UUID.randomUUID()}.$extension"
-                            
-                            // Read bytes from the channel
-                            val channel = part.provider()
-                            fileBytes = channel.readRemaining().readByteArray()
-                        }
-                        part.dispose()
-                    }
-                    
-                    if (fileName.isNotEmpty() && fileBytes != null) {
-                        println("UPLOAD: Received file $fileName (${fileBytes!!.size} bytes)")
-                        
-                        // 1. Save locally for fast access
-                        val file = File(uploadDir, fileName)
-                        file.writeBytes(fileBytes!!)
-                        println("UPLOAD: Saved locally to ${file.absolutePath}")
-                        
-                        // 2. Upload to Supabase as backup
-                        val supabaseUrl = supabaseService.uploadFile(fileName, fileBytes!!)
-                        if (supabaseUrl != null) {
-                            println("UPLOAD: Successfully backed up to Supabase: $supabaseUrl")
-                        } else {
-                            println("UPLOAD ERROR: Supabase backup failed for $fileName")
-                        }
-                        
-                        // 3. Return the LOCAL server URL as primary
-                        val url = "/uploads/$fileName"
-                        call.respond(mapOf("url" to url))
-                    } else {
-                        call.respond(HttpStatusCode.BadRequest, "No file found in request")
-                    }
-                } catch (e: Exception) {
-                    println("UPLOAD ERROR: ${e.message}")
-                    call.respond(HttpStatusCode.InternalServerError, e.message ?: "Unknown error")
-                }
-            }
-        }
-        
-        get("/health") {
-            try {
-                transaction {
-                    Users.selectAll().limit(1).toList()
-                }
-                call.respond(mapOf("status" to "up", "database" to "connected"))
-            } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to e.message))
-            }
+            val file = File(uploadDir, call.parameters["name"] ?: "")
+            if (file.exists()) call.respondFile(file) else call.respondRedirect("${System.getenv("SUPABASE_URL")}/storage/v1/object/public/recipe-media/${file.name}")
         }
 
         post("/signup") {
             val user = call.receive<UserDTO>()
-            val hashedPassword = BCrypt.withDefaults().hashToString(12, user.password.toCharArray())
             val now = System.currentTimeMillis()
             try {
-                transaction {
-                    Users.insert {
-                        it[Users.username] = user.username
-                        it[Users.password] = hashedPassword
-                        it[Users.createdAt] = now
-                    }
-                }
-                val accessToken = generateAccessToken(user.username)
-                val refreshToken = generateRefreshToken(user.username)
-                call.respond(TokenResponse("success", accessToken, refreshToken, now))
-            } catch (e: Exception) {
-                call.respond(HttpStatusCode.Conflict, TokenResponse("error", message = "Username already exists"))
-            }
+                transaction { Users.insert { it[username] = user.username; it[password] = BCrypt.withDefaults().hashToString(12, user.password.toCharArray()); it[createdAt] = now } }
+                call.respond(TokenResponse("success", generateAccessToken(user.username), generateRefreshToken(user.username), now))
+            } catch (e: Exception) { call.respond(HttpStatusCode.Conflict, mapOf("message" to "Exists")) }
         }
 
         post("/login") {
             val credentials = call.receive<UserDTO>()
-            val userData = transaction {
-                Users.selectAll().where { Users.username eq credentials.username }
-                    .map { Triple(it[Users.password], it[Users.createdAt], it[Users.username]) }
-                    .singleOrNull()
-            }
-            
-            if (userData != null) {
-                val storedPassword = userData.first
-                val userCreatedAt = userData.second
-                var loginSuccessful = false
-                
-                // 1. Try BCrypt (New secure way)
-                try {
-                    if (BCrypt.verifyer().verify(credentials.password.toCharArray(), storedPassword).verified) {
-                        loginSuccessful = true
-                    }
-                } catch (e: Exception) {
-                    // Not a BCrypt hash, will try plain text check next
-                }
-
-                // 2. Try Plain Text (Old way - for auto-migration)
-                if (!loginSuccessful && storedPassword == credentials.password) {
-                    loginSuccessful = true
-                    // Auto-migrate to secure hash
-                    val newHash = BCrypt.withDefaults().hashToString(12, credentials.password.toCharArray())
-                    transaction {
-                        Users.update({ Users.username eq credentials.username }) {
-                            it[password] = newHash
-                        }
-                    }
-                    println("AUTO-MIGRATION: User ${credentials.username} password has been hashed and secured.")
-                }
-
-                if (loginSuccessful) {
-                    val accessToken = generateAccessToken(credentials.username)
-                    val refreshToken = generateRefreshToken(credentials.username)
-                    call.respond(TokenResponse("success", accessToken, refreshToken, userCreatedAt))
-                } else {
-                    call.respond(HttpStatusCode.Unauthorized, TokenResponse("failure", message = "Invalid username or password"))
-                }
-            } else {
-                call.respond(HttpStatusCode.Unauthorized, TokenResponse("failure", message = "Invalid username or password"))
-            }
-        }
-
-        post("/refresh") {
-            val request = call.receive<RefreshRequest>()
-            val tokenData = transaction {
-                RefreshTokens.selectAll().where { RefreshTokens.token eq request.refreshToken }
-                    .map { it[RefreshTokens.username] to it[RefreshTokens.expiresAt] }
-                    .singleOrNull()
-            }
-
-            if (tokenData != null && tokenData.second > System.currentTimeMillis()) {
-                val newAccessToken = generateAccessToken(tokenData.first)
-                call.respond(TokenResponse("success", accessToken = newAccessToken))
-            } else {
-                call.respond(HttpStatusCode.Unauthorized, TokenResponse("error", message = "Invalid or expired refresh token"))
-            }
+            val userData = transaction { Users.selectAll().where { Users.username eq credentials.username }.map { Triple(it[Users.password], it[Users.createdAt], it[Users.avatarUri]) }.singleOrNull() }
+            if (userData != null && BCrypt.verifyer().verify(credentials.password.toCharArray(), userData.first).verified) {
+                call.respond(TokenResponse("success", generateAccessToken(credentials.username), generateRefreshToken(credentials.username), userData.second, userData.third))
+            } else call.respond(HttpStatusCode.Unauthorized)
         }
 
         authenticate("auth-jwt") {
+            // ALL AUTHENTICATED ROUTES CONSOLIDATED HERE
+            
+            // 1. User Update
+            post("/user/update") {
+                val update = call.receive<UserDTO>()
+                val username = call.principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
+                transaction { Users.update({ Users.username eq username }) { 
+                    if (update.avatarUri != null) it[avatarUri] = update.avatarUri
+                    if (update.password.isNotBlank()) it[password] = BCrypt.withDefaults().hashToString(12, update.password.toCharArray())
+                }}
+                call.respond(mapOf("status" to "success"))
+            }
+
+            // 2. AI Image Generation
+            post("/ai/generate") {
+                try {
+                    val request = call.receive<AiGenerateRequest>()
+                    val seed = (Math.random() * 1000000).toInt()
+                    val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(request.prompt, "UTF-8")}?width=512&height=512&seed=$seed&model=flux"
+                    val bytes = URL(imageUrl).readBytes()
+                    val fileName = "ai_${java.util.UUID.randomUUID()}.jpg"
+                    File(uploadDir, fileName).writeBytes(bytes)
+                    SupabaseService().uploadFile(fileName, bytes)
+                    call.respond(mapOf("url" to "/uploads/$fileName"))
+                } catch (e: Exception) { call.respond(HttpStatusCode.InternalServerError, e.message ?: "AI Error") }
+            }
+
+            // 3. Recipes
             route("/recipes") {
                 get("/{owner}") {
-                    val principal = call.principal<JWTPrincipal>()
-                    val jwtUsername = principal!!.payload.getClaim("username").asString()
-                    val owner = call.parameters["owner"] ?: return@get call.respond(emptyList<RecipeDTO>())
-                    
-                    if (jwtUsername != owner) {
-                        return@get call.respond(HttpStatusCode.Forbidden, "Unauthorized access to recipes")
-                    }
-
-                    val recipesList = transaction {
-                        Recipes.selectAll().where { Recipes.owner eq owner }.map { row ->
-                            RecipeDTO(
-                                id = row[Recipes.id],
-                                title = row[Recipes.title],
-                                description = row[Recipes.description],
-                                ingredients = row[Recipes.ingredients]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
-                                instructions = row[Recipes.instructions]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
-                                imageUri = row[Recipes.imageUri],
-                                videoUri = row[Recipes.videoUri],
-                                rating = row[Recipes.rating],
-                                tags = row[Recipes.tags]?.split("|")?.filter { it.isNotEmpty() } ?: emptyList(),
-                                category = row[Recipes.category],
-                                isFavorite = row[Recipes.isFavorite],
-                                owner = row[Recipes.owner]
-                            )
-                        }
-                    }
-                    call.respond(recipesList)
+                    val owner = call.parameters["owner"] ?: ""
+                    val list = transaction { Recipes.selectAll().where { Recipes.owner eq owner }.map { row ->
+                        RecipeDTO(row[Recipes.id], row[Recipes.title], row[Recipes.description], row[Recipes.ingredients]?.split("|"), row[Recipes.instructions]?.split("|"), row[Recipes.imageUri], row[Recipes.videoUri], row[Recipes.rating], row[Recipes.tags]?.split("|"), row[Recipes.category], row[Recipes.isFavorite], row[Recipes.owner], row[Recipes.createdAt])
+                    }}
+                    call.respond(list)
                 }
-
                 post {
-                    try {
-                        val recipe = call.receive<RecipeDTO>()
-                        val principal = call.principal<JWTPrincipal>()
-                        val jwtUsername = principal!!.payload.getClaim("username").asString()
-                        
-                        if (jwtUsername != recipe.owner) {
-                            return@post call.respond(HttpStatusCode.Forbidden, "Unauthorized owner for recipe")
-                        }
-
-                        println("Received recipe for sync: title='${recipe.title}', id='${recipe.id}', imageUri='${recipe.imageUri}'")
-                        transaction {
-                            println("Database operation for recipe: ${recipe.id}")
-                            val exists = Recipes.selectAll().where { Recipes.id eq recipe.id }.any()
-                            if (exists) {
-                                Recipes.update({ Recipes.id eq recipe.id }) {
-                                    it[title] = recipe.title
-                                    it[description] = recipe.description ?: ""
-                                    it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
-                                    it[instructions] = recipe.instructions?.joinToString("|") ?: ""
-                                    it[imageUri] = recipe.imageUri
-                                    it[videoUri] = recipe.videoUri
-                                    it[rating] = recipe.rating ?: 0.0
-                                    it[tags] = recipe.tags?.joinToString("|") ?: ""
-                                    it[category] = recipe.category ?: "General"
-                                    it[isFavorite] = recipe.isFavorite
-                                    it[owner] = recipe.owner
-                                }
-                                println("Recipe ${recipe.id} updated successfully")
-                            } else {
-                                Recipes.insert {
-                                    it[id] = recipe.id
-                                    it[title] = recipe.title
-                                    it[description] = recipe.description ?: ""
-                                    it[ingredients] = recipe.ingredients?.joinToString("|") ?: ""
-                                    it[instructions] = recipe.instructions?.joinToString("|") ?: ""
-                                    it[imageUri] = recipe.imageUri
-                                    it[videoUri] = recipe.videoUri
-                                    it[rating] = recipe.rating ?: 0.0
-                                    it[tags] = recipe.tags?.joinToString("|") ?: ""
-                                    it[category] = recipe.category ?: "General"
-                                    it[isFavorite] = recipe.isFavorite
-                                    it[owner] = recipe.owner
-                                }
-                                println("Recipe ${recipe.id} inserted successfully")
-                            }
-                        }
-                        call.respond(mapOf("status" to "success"))
-                    } catch (e: Exception) {
-                        println("ERROR IN POST /recipes: ${e.message}")
-                        e.printStackTrace()
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (e.message ?: "Unknown error")))
-                    }
-                }
-
-                delete("/{id}") {
-                    val recipeId = call.parameters["id"] ?: return@delete call.respond(mapOf("status" to "error"))
-                    val principal = call.principal<JWTPrincipal>()
-                    val jwtUsername = principal!!.payload.getClaim("username").asString()
-
-                    val recipeOwner = transaction {
-                        Recipes.selectAll().where { Recipes.id eq recipeId }.map { it[Recipes.owner] }.singleOrNull()
-                    }
-
-                    if (recipeOwner != null && jwtUsername != recipeOwner) {
-                        return@delete call.respond(HttpStatusCode.Forbidden, "Unauthorized deletion")
-                    }
-
+                    val r = call.receive<RecipeDTO>()
                     transaction {
-                        Recipes.deleteWhere { Recipes.id eq recipeId }
+                        val exists = Recipes.selectAll().where { Recipes.id eq r.id }.any()
+                        if (exists) {
+                            Recipes.update({ Recipes.id eq r.id }) { it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt }
+                        } else {
+                            Recipes.insert { it[id] = r.id; it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt }
+                        }
                     }
+                    call.respond(mapOf("status" to "success"))
+                }
+                delete("/{id}") {
+                    transaction { Recipes.deleteWhere { Recipes.id eq (call.parameters["id"] ?: "") } }
+                    call.respond(mapOf("status" to "success"))
+                }
+            }
+
+            // 4. Categories
+            route("/categories") {
+                get("/{owner}") {
+                    val owner = call.parameters["owner"] ?: ""
+                    val list = transaction { Categories.selectAll().where { Categories.owner eq owner }.map { CategoryDTO(it[Categories.id], it[Categories.name], it[Categories.owner]) } }
+                    call.respond(list)
+                }
+                post {
+                    val c = call.receive<CategoryDTO>()
+                    transaction {
+                        if (Categories.selectAll().where { Categories.id eq c.id }.any()) Categories.update({ Categories.id eq c.id }) { it[name] = c.name }
+                        else Categories.insert { it[id] = c.id; it[name] = c.name; it[owner] = c.owner }
+                    }
+                    call.respond(mapOf("status" to "success"))
+                }
+                delete("/{id}") {
+                    transaction { Categories.deleteWhere { Categories.id eq (call.parameters["id"] ?: "") } }
                     call.respond(mapOf("status" to "success"))
                 }
             }
             
-            route("/categories") {
-                get("/{owner}") {
-                    val principal = call.principal<JWTPrincipal>()
-                    val jwtUsername = principal!!.payload.getClaim("username").asString()
-                    val ownerParam = call.parameters["owner"] ?: ""
-                    
-                    if (jwtUsername != ownerParam) {
-                        return@get call.respond(HttpStatusCode.Forbidden, "Unauthorized access to categories")
-                    }
-
-                    val cats = transaction {
-                        Categories.selectAll().where { Categories.owner eq ownerParam }.map { row ->
-                            CategoryDTO(row[Categories.id], row[Categories.name], row[Categories.owner])
-                        }
-                    }
-                    call.respond(cats)
-                }
-                
-                post {
-                    val cat = call.receive<CategoryDTO>()
-                    val principal = call.principal<JWTPrincipal>()
-                    val jwtUsername = principal!!.payload.getClaim("username").asString()
-
-                    if (jwtUsername != cat.owner) {
-                        return@post call.respond(HttpStatusCode.Forbidden, "Unauthorized owner for category")
-                    }
-
-                    transaction {
-                        val exists = Categories.selectAll().where { Categories.id eq cat.id }.any()
-                        if (exists) {
-                            Categories.update({ Categories.id eq cat.id }) {
-                                it[name] = cat.name
-                                it[owner] = cat.owner
-                            }
-                        } else {
-                            Categories.insert {
-                                it[id] = cat.id
-                                it[name] = cat.name
-                                it[owner] = cat.owner
-                            }
-                        }
-                    }
-                    call.respond(mapOf("status" to "success"))
-                }
-                
-                delete("/{id}") {
-                    val catId = call.parameters["id"] ?: ""
-                    val principal = call.principal<JWTPrincipal>()
-                    val jwtUsername = principal!!.payload.getClaim("username").asString()
-
-                    val catOwner = transaction {
-                        Categories.selectAll().where { Categories.id eq catId }.map { it[Categories.owner] }.singleOrNull()
-                    }
-
-                    if (catOwner != null && jwtUsername != catOwner) {
-                        return@delete call.respond(HttpStatusCode.Forbidden, "Unauthorized deletion")
-                    }
-
-                    transaction {
-                        Categories.deleteWhere { Categories.id eq catId }
-                    }
-                    call.respond(mapOf("status" to "success"))
-                }
+            // 5. Raw File Upload
+            post("/upload") {
+                val multipart = call.receiveMultipart()
+                var name = ""; var bytes: ByteArray? = null
+                multipart.forEachPart { if (it is PartData.FileItem) { name = "f_${java.util.UUID.randomUUID()}.${it.originalFileName?.substringAfterLast(".") ?: "bin"}"; bytes = it.provider().readRemaining().readByteArray() }; it.dispose() }
+                if (bytes != null) { File(uploadDir, name).writeBytes(bytes!!); SupabaseService().uploadFile(name, bytes!!); call.respond(mapOf("url" to "/uploads/$name")) }
+                else call.respond(HttpStatusCode.BadRequest)
             }
         }
     }
