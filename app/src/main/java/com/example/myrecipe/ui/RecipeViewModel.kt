@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.io.File
 import java.io.FileOutputStream
 
@@ -101,58 +104,51 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 
                 // Helper to fetch random recipes from a list of categories with strict dessert filtering
                 suspend fun fetchMixedRecipes(count: Int, pool: List<String>): List<Recipe> {
-                    val allMealIds = mutableListOf<String>()
-                    val shuffledPool = pool.shuffled(random)
+                    val shuffledPool = pool.shuffled(random).take(3)
                     
-                    for (cat in shuffledPool) {
-                        try {
-                            val response = api.getRecipesByCategory(cat)
-                            val ids = response.meals?.map { it.idMeal } ?: emptyList()
-                            allMealIds.addAll(ids)
-                        } catch (e: Exception) {
-                            Log.e("RecipeViewModel", "Failed to fetch category $cat: ${e.message}")
-                        }
+                    val allMealIds = coroutineScope {
+                        shuffledPool.map { cat ->
+                            async {
+                                try {
+                                    api.getRecipesByCategory(cat).meals?.map { it.idMeal } ?: emptyList()
+                                } catch (e: Exception) { emptyList() }
+                            }
+                        }.awaitAll().flatten()
                     }
                     
-                    val finalResults = mutableListOf<Recipe>()
-                    val shuffledIds = allMealIds.shuffled(random)
+                    val shuffledIds = allMealIds.shuffled(random).take(count * 2)
                     
-                    for (id in shuffledIds) {
-                        if (finalResults.size >= count) break
-                        val detailResponse = api.getRecipeDetails(id)
-                        val meal = detailResponse.meals?.firstOrNull()
-                        
-                        if (meal != null && meal.strCategory != "Dessert") {
-                            finalResults.add(meal.toRecipe())
-                        }
+                    return coroutineScope {
+                        shuffledIds.map { id ->
+                            async {
+                                try {
+                                    val meal = api.getRecipeDetails(id).meals?.firstOrNull()
+                                    if (meal != null && meal.strCategory != "Dessert") meal.toRecipe() else null
+                                } catch (e: Exception) { null }
+                            }
+                        }.awaitAll().filterNotNull().take(count)
                     }
-                    return finalResults
                 }
 
-                // 1. Breakfast (Always Breakfast category)
-                val breakfastResponse = api.getRecipesByCategory("Breakfast")
-                // Use a different seed sequence for breakfast so it doesn't collide with mixed meals
-                val breakfastRandom = java.util.Random(seed + 123) 
-                val breakfastIds = breakfastResponse.meals?.shuffled(breakfastRandom)?.take(5)?.map { it.idMeal } ?: emptyList()
-                results["Breakfast"] = breakfastIds.map { id ->
-                    api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
-                }.filterNotNull()
+                coroutineScope {
+                    val breakfastJob = async {
+                        val breakfastIds = api.getRecipesByCategory("Breakfast").meals?.shuffled(java.util.Random(seed + 123))?.take(5)?.map { it.idMeal } ?: emptyList()
+                        breakfastIds.map { id -> async { api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe() } }.awaitAll().filterNotNull()
+                    }
 
-                // 2. Lunch - Now a mix!
-                results["Lunch (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
+                    val lunchJob = async { fetchMixedRecipes(5, mainMealPool) }
+                    val dinnerJob = async { fetchMixedRecipes(5, mainMealPool) }
 
-                // 3. Dinner - Also a mix!
-                // Add an offset to seed so Dinner is different from Lunch if they share categories
-                val dinnerRandom = java.util.Random(seed + 999)
-                results["Dinner (Mixed)"] = fetchMixedRecipes(5, mainMealPool)
+                    val dessertJob = async {
+                        val dessertIds = api.getRecipesByCategory("Dessert").meals?.shuffled(java.util.Random(seed + 456))?.take(5)?.map { it.idMeal } ?: emptyList()
+                        dessertIds.map { id -> async { api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe() } }.awaitAll().filterNotNull()
+                    }
 
-                // 4. Sweet Treats (Always Dessert category)
-                val dessertResponse = api.getRecipesByCategory("Dessert")
-                val dessertRandom = java.util.Random(seed + 456)
-                val dessertIds = dessertResponse.meals?.shuffled(dessertRandom)?.take(5)?.map { it.idMeal } ?: emptyList()
-                results["Sweet Treats"] = dessertIds.map { id ->
-                    api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
-                }.filterNotNull()
+                    results["Breakfast"] = breakfastJob.await()
+                    results["Lunch (Mixed)"] = lunchJob.await()
+                    results["Dinner (Mixed)"] = dinnerJob.await()
+                    results["Sweet Treats"] = dessertJob.await()
+                }
 
                 _dailyRecipes.value = results
             } catch (e: Exception) {

@@ -527,7 +527,7 @@ fun CookingModeDialog(recipe: Recipe, onDismiss: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ScheduleMealDialog(initialDate: Long? = null, initialType: String? = null, onDismiss: () -> Unit, onSchedule: (Long, String) -> Unit) {
     val dateState = rememberDatePickerState(initialSelectedDateMillis = initialDate ?: System.currentTimeMillis())
@@ -565,12 +565,17 @@ fun ScheduleMealDialog(initialDate: Long? = null, initialType: String? = null, o
                         )
                     }
                 }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-                    listOf("Breakfast", "Lunch", "Dinner").forEach { t ->
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    maxItemsInEachRow = 3
+                ) {
+                    listOf("Breakfast", "Lunch", "Dinner", "Sweet Treat").forEach { t ->
                         FilterChip(
                             selected = type.value == t,
                             onClick = { type.value = t },
-                            label = { Text(t) }
+                            label = { Text(t) },
+                            modifier = Modifier.padding(horizontal = 4.dp)
                         )
                     }
                 }
