@@ -50,6 +50,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -60,32 +61,21 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.myrecipe.R
-import com.example.myrecipe.model.Recipe
-import com.example.myrecipe.model.Category
-import com.example.myrecipe.model.ShoppingItem
-import com.example.myrecipe.model.MealPlan
-import java.io.File
 import java.util.Calendar
 
 @Composable
 fun AutoScrollingRecipeRow(meals: List<Recipe>, onRecipeClick: (Recipe) -> Unit) {
-    if (meals.isEmpty()) return
-    val totalPages = meals.size * 1000
-    val pagerState = rememberPagerState(pageCount = { totalPages }, initialPage = totalPages / 2)
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(4000); if (!pagerState.isScrollInProgress) pagerState.animateScrollToPage(pagerState.currentPage + 1) } }
-    HorizontalPager(state = pagerState, contentPadding = PaddingValues(horizontal = 40.dp), pageSpacing = 16.dp, modifier = Modifier.fillMaxWidth().height(310.dp)) { page ->
-        val meal = meals[page % meals.size]
-        RecipeCard(recipe = meal, onClick = { onRecipeClick(meal) }, modifier = Modifier.fillMaxWidth())
-    }
+    val pagerState = rememberPagerState(pageCount = { meals.size })
+    LaunchedEffect(Unit) { while(true) { kotlinx.coroutines.delay(4000); if (pagerState.pageCount > 0) pagerState.animateScrollToPage((pagerState.currentPage + 1) % pagerState.pageCount) } }
+    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(220.dp), contentPadding = PaddingValues(horizontal = 32.dp), pageSpacing = 16.dp) { page -> RecipeCard(meals[page], { onRecipeClick(meals[page]) }, Modifier.fillMaxSize()) }
 }
 
 @Composable
-fun VideoPlayer(videoUri: Uri, modifier: Modifier = Modifier) {
+fun VideoPlayer(uri: Uri, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val exoPlayer = remember { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(videoUri)); prepare() } }
+    val exoPlayer = remember { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(uri)); prepare() } }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
-    AndroidView(factory = { PlayerView(it).apply { player = exoPlayer; useController = true } }, modifier = modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)))
+    AndroidView(factory = { PlayerView(it).apply { player = exoPlayer } }, modifier = modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(16.dp)))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,9 +132,9 @@ fun RecipeApp(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
         Box(modifier = Modifier.padding(innerPadding)) {
             AnimatedContent(targetState = selectedTabState.intValue, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "TabTransition") { tab ->
                 when (tab) {
-                    0 -> HomeScreen(viewModel, authViewModel, onScheduleRecipe = { recipeToScheduleState.value = it })
-                    1 -> ExploreScreen(viewModel, searchQueryState.value, onScheduleRecipe = { recipeToScheduleState.value = it })
-                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it }, onScheduleRecipe = { recipeToScheduleState.value = it })
+                    0 -> HomeScreen(viewModel, authViewModel, onScheduleRecipe = { recipeToScheduleState.value = it }, onStartCooking = { recipeToCookState.value = it })
+                    1 -> ExploreScreen(viewModel, searchQueryState.value, onScheduleRecipe = { recipeToScheduleState.value = it }, onStartCooking = { recipeToCookState.value = it })
+                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it }, onScheduleRecipe = { recipeToScheduleState.value = it }, onStartCooking = { recipeToCookState.value = it })
                     3 -> PlannerScreen(viewModel)
                     4 -> ProfileScreen(authViewModel, viewModel)
                 }
@@ -167,7 +157,7 @@ fun EmptyState(message: String, icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel, onScheduleRecipe: (Recipe) -> Unit) {
+fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel, onScheduleRecipe: (Recipe) -> Unit, onStartCooking: (Recipe) -> Unit) {
     val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
@@ -226,13 +216,13 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel, onSched
         }
     }
     recipeToDeleteState.value?.let { r -> DeleteRecipeConfirmationDialog(r.title, { viewModel.deleteRecipe(r); recipeToDeleteState.value = null }, { recipeToDeleteState.value = null }) }
-    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { recipeToEditState.value = r; selectedRecipeState.value = null }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }, { /* onStartCooking */ }) }
+    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { recipeToEditState.value = r; selectedRecipeState.value = null }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }, { onStartCooking(r); selectedRecipeState.value = null }) }
     recipeToSaveState.value?.let { r -> SaveRecipeWithCategoryDialog(viewModel.categories.value, { recipeToSaveState.value = null }, { cat -> viewModel.savePublicRecipe(r, cat); recipeToSaveState.value = null; Toast.makeText(context, "Saved to $cat!", Toast.LENGTH_SHORT).show() }) }
     recipeToEditState.value?.let { r -> EditRecipeDialog(r, viewModel, { recipeToEditState.value = null }, { updated -> viewModel.updateRecipe(updated); recipeToEditState.value = null }) }
 }
 
 @Composable
-fun ExploreScreen(viewModel: RecipeViewModel, query: String, onScheduleRecipe: (Recipe) -> Unit) {
+fun ExploreScreen(viewModel: RecipeViewModel, query: String, onScheduleRecipe: (Recipe) -> Unit, onStartCooking: (Recipe) -> Unit) {
     val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
@@ -259,7 +249,7 @@ fun ExploreScreen(viewModel: RecipeViewModel, query: String, onScheduleRecipe: (
         }
         if (filteredLocal.isEmpty() && (query.length < 3 || (publicResults.isEmpty() && !isSearchingPublic))) item { EmptyState(if (query.isEmpty()) "No recipes yet." else "Keep typing...", if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.Search) }
     }
-    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { /* restricted */ }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }) }
+    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { /* restricted */ }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }, { onStartCooking(r); selectedRecipeState.value = null }) }
     recipeToSaveState.value?.let { r -> SaveRecipeWithCategoryDialog(viewModel.categories.value, { recipeToSaveState.value = null }, { cat -> viewModel.savePublicRecipe(r, cat); recipeToSaveState.value = null; Toast.makeText(context, "Saved to $cat!", Toast.LENGTH_SHORT).show() }) }
 }
 
@@ -291,7 +281,7 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
-fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}, onScheduleRecipe: (Recipe) -> Unit) {
+fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}, onScheduleRecipe: (Recipe) -> Unit, onStartCooking: (Recipe) -> Unit) {
     val context = LocalContext.current
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedCategory) { onCategorySelected(selectedCategory) }
@@ -318,7 +308,7 @@ fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: 
         var recToDel by remember { mutableStateOf<Recipe?>(null) }
         CategoryDetailScreen(selectedCategory!!, recipes.filter { it.category == selectedCategory }, { selectedCategory = null }, { recToDel = it }, { selRec = it })
         recToDel?.let { r -> DeleteRecipeConfirmationDialog(r.title, { viewModel.deleteRecipe(r); recToDel = null }, { recToDel = null }) }
-        selRec?.let { r -> RecipeDetailDialog(r, viewModel, { selRec = null }, { viewModel.toggleFavorite(r) }, { recToEdit = r; selRec = null }, null, { onScheduleRecipe(r); selRec = null }, null) }
+        selRec?.let { r -> RecipeDetailDialog(r, viewModel, { selRec = null }, { viewModel.toggleFavorite(r) }, { recToEdit = r; selRec = null }, null, { onScheduleRecipe(r); selRec = null }, { onStartCooking(r); selRec = null }) }
         recToEdit?.let { r -> EditRecipeDialog(r, viewModel, { recToEdit = null }, { updated -> viewModel.updateRecipe(updated); recToEdit = null }) }
     }
     if (showAddCat) AddCategoryDialog({ showAddCat = false }, { viewModel.addCategory(it, owner); showAddCat = false })
@@ -340,36 +330,37 @@ fun CategoryItem(name: String, onClick: () -> Unit, onEdit: () -> Unit, onDelete
 }
 
 @Composable
-fun CategoryDetailScreen(name: String, recipes: List<Recipe>, onBack: () -> Unit, onDeleteRecipe: (Recipe) -> Unit, onRecipeClick: (Recipe) -> Unit) {
+fun CategoryDetailScreen(category: String, recipes: List<Recipe>, onBack: () -> Unit, onDeleteRecipe: (Recipe) -> Unit, onRecipeClick: (Recipe) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }; Text(name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-        if (recipes.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No recipes here yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        else LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { items(recipes) { r -> RecipeItemRow(r, { onDeleteRecipe(r) }, { onRecipeClick(r) }) } }
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }; Spacer(Modifier.width(12.dp)); Text(category, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold) }
+        if (recipes.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("No recipes in this category.", Icons.Default.Inventory2) }
+        else LazyColumn(contentPadding = PaddingValues(16.dp)) { items(recipes) { r -> RecipeItemRow(r, { onDeleteRecipe(r) }, { onRecipeClick(r) }) } }
     }
 }
 
 @Composable
 fun PlannerScreen(viewModel: RecipeViewModel) {
-    var subTab by remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 2 })
+    val coroutineScope = rememberCoroutineScope()
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = subTab, containerColor = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.primary, indicator = { TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(it[subTab]), color = MaterialTheme.colorScheme.primary) }) {
-            Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("Shopping List") })
-            Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("Meal Plan") })
+        TabRow(selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surface, indicator = { tabPositions -> TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]), color = MaterialTheme.colorScheme.primary) }) {
+            Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }, text = { Text("Meal Plan") })
+            Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }, text = { Text("Shopping List") })
         }
-        if (subTab == 0) ShoppingListScreen(viewModel) else MealPlanScreen(viewModel)
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page -> if (page == 0) MealPlanScreen(viewModel) else ShoppingListScreen(viewModel) }
     }
 }
 
 @Composable
 fun MealPlanScreen(viewModel: RecipeViewModel) {
     val plans by viewModel.mealPlans.collectAsState()
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) { Text("Weekly Schedule", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f)) }
-        if (plans.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your planner is empty.", Icons.Default.EventNote) }
-        else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            plans.groupBy { val c = Calendar.getInstance(); c.timeInMillis = it.date; "${c.get(Calendar.DAY_OF_MONTH)}/${c.get(Calendar.MONTH) + 1}" }.forEach { (d, p) ->
-                item { Text(d, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
-                items(p) { plan -> MealPlanRow(plan, { viewModel.deleteMealPlan(plan) }) }
+    if (plans.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your meal plan is empty.", Icons.Default.CalendarToday) }
+    else {
+        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            val grouped = plans.groupBy { java.text.SimpleDateFormat("EEEE, MMM d", java.util.Locale.getDefault()).format(java.util.Date(it.date)) }
+            grouped.forEach { (date, dailyPlans) ->
+                item { Text(date, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+                items(dailyPlans) { plan -> MealPlanRow(plan, onDelete = { viewModel.deleteMealPlan(plan) }) }
             }
         }
     }
@@ -377,11 +368,11 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
 
 @Composable
 fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(0.5f)) { Text(plan.mealType.take(1), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) { Text(plan.recipeTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(plan.mealType, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.6f)) }
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) { Text(plan.mealType, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.width(16.dp)); Text(plan.recipeTitle, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.5f)) }
         }
     }
 }
@@ -390,12 +381,11 @@ fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit) {
 fun ShoppingListScreen(viewModel: RecipeViewModel) {
     val items by viewModel.shoppingList.collectAsState()
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Shopping List", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); IconButton(onClick = { viewModel.clearCheckedShoppingItems() }) { Icon(Icons.Default.DeleteSweep, null, tint = MaterialTheme.colorScheme.error) } }
-        if (items.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your list is empty.", Icons.Default.ShoppingCartCheckout) }
-        else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items.groupBy { it.category }.forEach { (cat, itms) ->
-                item { Text(cat, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
-                items(itms) { i -> ShoppingItemRow(i, { viewModel.toggleShoppingItem(i) }, { viewModel.deleteShoppingItem(i) }) }
+        if (items.any { it.isChecked }) { TextButton(onClick = { viewModel.clearCheckedShoppingItems() }, modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp)) { Text("Clear Completed") } }
+        if (items.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Shopping list is empty.", Icons.Default.ListAlt) }
+        else {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(items) { item -> ShoppingItemRow(item, onToggle = { viewModel.toggleShoppingItem(item) }, onDelete = { viewModel.deleteShoppingItem(item) }) }
             }
         }
     }
@@ -403,12 +393,10 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
 
 @Composable
 fun ShoppingItemRow(item: ShoppingItem, onToggle: () -> Unit, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (item.isChecked) MaterialTheme.colorScheme.surfaceVariant.copy(0.5f) else MaterialTheme.colorScheme.surface)) {
-        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(item.isChecked, { onToggle() }); Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) { Text(item.name, style = MaterialTheme.typography.bodyLarge, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, color = if (item.isChecked) MaterialTheme.colorScheme.onSurface.copy(0.5f) else MaterialTheme.colorScheme.onSurface); if (item.quantity.isNotBlank()) Text(item.quantity, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Close, null, modifier = Modifier.size(20.dp), tint = Color.Gray) }
-        }
+    Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = item.isChecked, onCheckedChange = { onToggle() })
+        Spacer(Modifier.width(12.dp)); Text(item.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = if (item.isChecked) Color.Gray else Color.Unspecified, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
+        IconButton(onClick = onDelete) { Icon(Icons.Default.Close, null, tint = Color.LightGray) }
     }
 }
 
@@ -470,66 +458,52 @@ fun CookingModeDialog(recipe: Recipe, onDismiss: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleMealDialog(onDismiss: () -> Unit, onSchedule: (Long, String) -> Unit) {
-    var date by remember { mutableStateOf(System.currentTimeMillis()) }
-    var type by remember { mutableStateOf("Lunch") }
-    var showPicker by remember { mutableStateOf(false) }
-    val pickerState = rememberDatePickerState(date)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Schedule") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) { Row(modifier = Modifier.padding(16.dp)) { Icon(Icons.Default.CalendarToday, null); Spacer(Modifier.width(12.dp)); val c = Calendar.getInstance(); c.timeInMillis = date; Text("${c.get(Calendar.DAY_OF_MONTH)}/${c.get(Calendar.MONTH) + 1}") } }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("Breakfast", "Lunch", "Dinner").forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t) }, modifier = Modifier.weight(1f)) } }
-        }
-    }, confirmButton = { Button(onClick = { onSchedule(date, type) }) { Text("Schedule") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
-    if (showPicker) DatePickerDialog(onDismissRequest = { showPicker = false }, confirmButton = { TextButton(onClick = { date = pickerState.selectedDateMillis ?: date; showPicker = false }) { Text("OK") } }) { DatePicker(pickerState) }
+    val date = remember { mutableStateOf(System.currentTimeMillis()) }
+    val type = remember { mutableStateOf("Lunch") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Schedule Meal") }, text = { Column { Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) { listOf("Breakfast", "Lunch", "Dinner").forEach { t -> FilterChip(selected = type.value == t, onClick = { type.value = t }, label = { Text(t) }) } } } }, confirmButton = { Button(onClick = { onSchedule(date.value, type.value) }) { Text("Schedule") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @Composable
-fun AddCategoryDialog(onDismiss: () -> Unit, onCategoryAdded: (String) -> Unit) {
+fun AddCategoryDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     val name = remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("New Category") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onCategoryAdded(name.value) }) { Text("Create") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Add Category") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Category Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onAdd(name.value) }) { Text("Add") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @Composable
-fun EditCategoryDialog(cat: Category, onDismiss: () -> Unit, onUpdate: (String) -> Unit) {
-    val name = remember { mutableStateOf(cat.name) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Edit") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onUpdate(name.value) }) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+fun EditCategoryDialog(category: Category, onDismiss: () -> Unit, onUpdate: (String) -> Unit) {
+    val name = remember { mutableStateOf(category.name) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Edit Category") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Category Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onUpdate(name.value) }) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    val isDark = MaterialTheme.colorScheme.surface == ChefSecondary
-    TextField(value = query, onValueChange = onQueryChange, placeholder = { Text("Search...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f)) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp)) }, modifier = modifier.height(56.dp).border(if (isDark) 1.dp else 0.dp, if (isDark) MaterialTheme.colorScheme.primary.copy(0.4f) else Color.Transparent, CircleShape).clip(CircleShape), colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface), singleLine = true, shape = CircleShape)
+    OutlinedTextField(value = query, onValueChange = onQueryChange, modifier = modifier.height(52.dp), placeholder = { Text("Search recipes...", style = MaterialTheme.typography.bodyMedium) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, null) } }, shape = RoundedCornerShape(26.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White, unfocusedContainerColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent), singleLine = true)
 }
 
 @Composable
 fun DeleteCategoryConfirmationDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Category") }, text = { Text("Delete '$name' and all its recipes?") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Category?") }, text = { Text("Are you sure you want to delete '$name'? All recipes in this category will also be deleted.") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @Composable
-fun DeleteRecipeConfirmationDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Recipe") }, text = { Text("Delete '$name'?") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+fun DeleteRecipeConfirmationDialog(title: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Recipe?") }, text = { Text("Delete '$title' permanently?") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SaveRecipeWithCategoryDialog(categories: List<Category>, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var selectedCategory by remember { mutableStateOf(categories.firstOrNull()?.name ?: "General") }
     var expanded by remember { mutableStateOf(false) }
-
+    var selectedCategory by remember { mutableStateOf(categories.firstOrNull()?.name ?: "General") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("Save Recipe", fontWeight = FontWeight.Bold) },
+        title = { Text("Save Recipe") },
         text = {
             Column {
-                Text("Select a category for this recipe:", style = MaterialTheme.typography.bodyMedium)
+                Text("Select category to save this recipe:")
                 Spacer(modifier = Modifier.height(16.dp))
-                
                 ExposedDropdownMenuBox(
                     expanded = expanded,
                     onExpandedChange = { expanded = !expanded }
@@ -540,8 +514,7 @@ fun SaveRecipeWithCategoryDialog(categories: List<Category>, onDismiss: () -> Un
                         readOnly = true,
                         label = { Text("Category") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
                     ExposedDropdownMenu(
                         expanded = expanded,
@@ -581,7 +554,56 @@ fun RecipeDetailDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: ()
     val context = LocalContext.current
     val fav = remember { mutableStateOf(recipe.isFavorite) }
     val isPub = recipe.owner == "Public"
-    AlertDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false), modifier = Modifier.fillMaxWidth(0.92f), title = { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(recipe.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f)); Row { if (isPub && onSave != null) IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, null, tint = MaterialTheme.colorScheme.primary) } else if (!isPub) { IconButton(onClick = { viewModel.togglePublish(recipe) }) { Icon(if (recipe.isPublic) Icons.Default.Public else Icons.Default.PublicOff, null, tint = if (recipe.isPublic) MaterialTheme.colorScheme.primary else Color.Gray) }; IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) } }; if (!isPub) IconButton(onClick = { fav.value = !fav.value; onFav() }) { Icon(if (fav.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (fav.value) Color.Red else Color.Gray) }; IconButton(onClick = { onSchedule?.invoke() }) { Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary) } } } }, text = {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.fillMaxWidth(0.92f),
+        title = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    recipe.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isPub && onSave != null) {
+                        IconButton(onClick = onSave) {
+                            Icon(Icons.Default.BookmarkAdd, null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    } else if (!isPub) {
+                        IconButton(onClick = { viewModel.togglePublish(recipe) }) {
+                            Icon(
+                                if (recipe.isPublic) Icons.Default.Public else Icons.Default.PublicOff,
+                                null,
+                                tint = if (recipe.isPublic) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        }
+                        IconButton(onClick = onEdit) {
+                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    if (!isPub) {
+                        IconButton(onClick = { fav.value = !fav.value; onFav() }) {
+                            Icon(
+                                if (fav.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                null,
+                                tint = if (fav.value) Color.Red else Color.Gray
+                            )
+                        }
+                    }
+                    IconButton(onClick = { onSchedule?.invoke() }) {
+                        Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        },
+        text = {
         Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo))
             Button(onClick = { onStartCooking?.invoke() }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Restaurant, null); Spacer(Modifier.width(12.dp)); Text("START COOKING", fontWeight = FontWeight.ExtraBold) }
@@ -605,7 +627,7 @@ fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -
             OutlinedTextField(vidL.value, { vidL.value = it; if (it.isNotBlank()) vid.value = null }, label = { Text("Video Link") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc.value, { desc.value = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(ing.value, { ing.value = it }, label = { Text("Ingredients") }, modifier = Modifier.fillMaxWidth(), minLines = 3); OutlinedTextField(ins.value, { ins.value = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
             Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) { OutlinedTextField(rat.value, { rat.value = it }, label = { Text("Rating") }, modifier = Modifier.weight(1f)); OutlinedTextField(tags.value, { tags.value = it }, label = { Text("Tags") }, modifier = Modifier.weight(2f)) }
         }
-    }, confirmButton = { Button({ if (title.value.isNotBlank()) onUpdate(recipe.copy(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) Uri.parse(vidL.value) else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Save") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
+    }, confirmButton = { Button({ if (title.value.isNotBlank()) onUpdate(recipe.copy(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) vidL.value.toUri() else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Save") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -620,5 +642,5 @@ fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null,
             OutlinedTextField(vidL.value, { vidL.value = it; if (it.isNotBlank()) vid.value = null }, label = { Text("Video Link") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc.value, { desc.value = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(ing.value, { ing.value = it }, label = { Text("Ingredients") }, modifier = Modifier.fillMaxWidth(), minLines = 3); OutlinedTextField(ins.value, { ins.value = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
             Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) { OutlinedTextField(rat.value, { rat.value = it }, label = { Text("Rating") }, modifier = Modifier.weight(1f)); OutlinedTextField(tags.value, { tags.value = it }, label = { Text("Tags") }, modifier = Modifier.weight(2f)) }
         }
-    }, confirmButton = { Button({ if (title.value.isNotBlank()) onRecipeAdded(Recipe(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) Uri.parse(vidL.value) else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Add") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
+    }, confirmButton = { Button({ if (title.value.isNotBlank()) onRecipeAdded(Recipe(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) vidL.value.toUri() else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Add") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }

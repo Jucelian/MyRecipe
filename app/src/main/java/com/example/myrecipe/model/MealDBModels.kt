@@ -1,6 +1,7 @@
 package com.example.myrecipe.model
 
 import com.google.gson.annotations.SerializedName
+import androidx.core.net.toUri
 
 data class MealDBResponse(
     val meals: List<MealDetail>?
@@ -33,11 +34,21 @@ data class MealDetail(
         return Recipe(
             id = "mealdb_$idMeal",
             title = strMeal,
-            description = "A delicious $strCategory dish from $strArea.",
+            description = buildString {
+                if (!strArea.isNullOrBlank()) {
+                    append("Discover the authentic flavors of $strArea cuisine")
+                    if (!strCategory.isNullOrBlank()) append(" with this $strCategory dish")
+                } else if (!strCategory.isNullOrBlank()) {
+                    append("A delicious $strCategory dish")
+                } else {
+                    append("A flavorful and hearty meal")
+                }
+                append(". Perfect for anyone who loves exploring new and exciting recipes!")
+            },
             ingredients = ingredients,
             instructions = strInstructions?.split("\r\n")?.filter { it.isNotBlank() } ?: emptyList(),
-            imageUri = android.net.Uri.parse(strMealThumb),
-            videoUri = if (strYoutube.isNullOrBlank()) null else android.net.Uri.parse(strYoutube),
+            imageUri = strMealThumb?.toUri(),
+            videoUri = if (strYoutube.isNullOrBlank()) null else strYoutube.toUri(),
             rating = 4.8, // Public recipes get a high default rating
             category = strCategory ?: "General",
             owner = "Public"
