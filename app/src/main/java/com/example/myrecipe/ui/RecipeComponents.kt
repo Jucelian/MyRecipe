@@ -401,7 +401,17 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
 fun ShoppingItemRow(item: ShoppingItem, onToggle: () -> Unit, onDelete: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = item.isChecked, onCheckedChange = { onToggle() })
-        Spacer(Modifier.width(12.dp)); Text(item.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = if (item.isChecked) Color.Gray else Color.Unspecified, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.name, style = MaterialTheme.typography.bodyLarge, color = if (item.isChecked) Color.Gray else Color.Unspecified, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
+            if (!item.recipeTitle.isNullOrBlank()) {
+                Text(
+                    text = "For: ${item.recipeTitle}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                )
+            }
+        }
         IconButton(onClick = onDelete) { Icon(Icons.Default.Close, null, tint = Color.LightGray) }
     }
 }

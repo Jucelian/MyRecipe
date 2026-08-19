@@ -13,5 +13,7 @@ data class ShoppingItem(
     val category: String = "Other",
     val isChecked: Boolean = false,
     val owner: String = "",
+    val recipeId: String? = null,
+    val recipeTitle: String? = null,
     val isSynced: Boolean = false
 )

@@ -46,6 +46,8 @@ object ShoppingList : Table("shopping_list") {
     val category = varchar("category", 100)
     val isChecked = bool("is_checked")
     val owner = varchar("owner", 50)
+    val recipeId = varchar("recipe_id", 50).nullable()
+    val recipeTitle = varchar("recipe_title", 255).nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

@@ -75,7 +75,9 @@ data class ShoppingItemDTO(
     val category: String = "Other",
     @SerialName("isChecked")
     val isChecked: Boolean = false,
-    val owner: String = ""
+    val owner: String = "",
+    val recipeId: String? = null,
+    val recipeTitle: String? = null
 )
 
 @Serializable
@@ -279,7 +281,7 @@ fun Application.module() {
                 get("/{owner}") {
                     val owner = call.parameters["owner"] ?: ""
                     val list = transaction { ShoppingList.selectAll().where { ShoppingList.owner eq owner }.map { row ->
-                        ShoppingItemDTO(row[ShoppingList.id], row[ShoppingList.name], row[ShoppingList.quantity], row[ShoppingList.category], row[ShoppingList.isChecked], row[ShoppingList.owner])
+                        ShoppingItemDTO(row[ShoppingList.id], row[ShoppingList.name], row[ShoppingList.quantity], row[ShoppingList.category], row[ShoppingList.isChecked], row[ShoppingList.owner], row[ShoppingList.recipeId], row[ShoppingList.recipeTitle])
                     }}
                     call.respond(list)
                 }
@@ -293,6 +295,8 @@ fun Application.module() {
                                 it[quantity] = item.quantity
                                 it[category] = item.category
                                 it[isChecked] = item.isChecked
+                                it[recipeId] = item.recipeId
+                                it[recipeTitle] = item.recipeTitle
                             }
                         } else {
                             ShoppingList.insert {
@@ -302,6 +306,8 @@ fun Application.module() {
                                 it[category] = item.category
                                 it[isChecked] = item.isChecked
                                 it[owner] = item.owner
+                                it[recipeId] = item.recipeId
+                                it[recipeTitle] = item.recipeTitle
                             }
                         }
                     }

@@ -438,7 +438,9 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                         val item = ShoppingItem(
                             name = ingredient,
                             category = recipe.category ?: "Other",
-                            owner = currentOwner.value
+                            owner = currentOwner.value,
+                            recipeId = recipe.id,
+                            recipeTitle = recipe.title
                         )
                         repository.addShoppingItem(item)
                     }
