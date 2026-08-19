@@ -71,7 +71,7 @@ data class CategoryDTO(
 data class ShoppingItemDTO(
     val id: String,
     val name: String = "",
-    val quantity: String = "",
+    val quantity: String? = "",
     val category: String = "Other",
     @SerialName("isChecked")
     val isChecked: Boolean = false,
@@ -309,6 +309,11 @@ fun Application.module() {
                 }
                 delete("/{id}") {
                     transaction { ShoppingList.deleteWhere { ShoppingList.id eq (call.parameters["id"] ?: "") } }
+                    call.respond(mapOf("status" to "success"))
+                }
+                delete("/clear/{owner}") {
+                    val owner = call.parameters["owner"] ?: ""
+                    transaction { ShoppingList.deleteWhere { (ShoppingList.owner eq owner) and (ShoppingList.isChecked eq true) } }
                     call.respond(mapOf("status" to "success"))
                 }
             }

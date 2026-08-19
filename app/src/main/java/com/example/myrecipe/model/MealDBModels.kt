@@ -35,11 +35,14 @@ data class MealDetail(
             id = "mealdb_$idMeal",
             title = strMeal,
             description = buildString {
-                if (!strArea.isNullOrBlank()) {
-                    append("Discover the authentic flavors of $strArea cuisine")
-                    if (!strCategory.isNullOrBlank()) append(" with this $strCategory dish")
-                } else if (!strCategory.isNullOrBlank()) {
-                    append("A delicious $strCategory dish")
+                val area = if (strArea == "null") null else strArea
+                val category = if (strCategory == "null") null else strCategory
+                
+                if (!area.isNullOrBlank()) {
+                    append("Discover the authentic flavors of $area cuisine")
+                    if (!category.isNullOrBlank()) append(" with this $category dish")
+                } else if (!category.isNullOrBlank()) {
+                    append("A delicious $category dish")
                 } else {
                     append("A flavorful and hearty meal")
                 }

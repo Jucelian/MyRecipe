@@ -62,6 +62,9 @@ interface RecipeApiService {
     @DELETE("shopping/{id}")
     suspend fun deleteShoppingItem(@Path("id") id: String): Map<String, String>
 
+    @DELETE("shopping/clear/{owner}")
+    suspend fun clearCheckedItems(@Path("owner") owner: String): Map<String, String>
+
     @GET("planner/{owner}")
     suspend fun getMealPlans(@Path("owner") owner: String): List<MealPlan>
 

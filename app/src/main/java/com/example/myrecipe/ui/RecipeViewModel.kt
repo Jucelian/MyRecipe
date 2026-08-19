@@ -430,7 +430,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                     if (existingItem != null) {
                         // Increment quantity if possible (very basic parser)
                         val newQuantity = try {
-                            val currentNum = existingItem.quantity.filter { it.isDigit() }.toIntOrNull() ?: 1
+                            val currentNum = existingItem.quantity?.filter { it.isDigit() }?.toIntOrNull() ?: 1
                             "${currentNum + 1}"
                         } catch (e: Exception) { "2" }
                         repository.updateShoppingItem(existingItem.copy(quantity = newQuantity, isSynced = false))

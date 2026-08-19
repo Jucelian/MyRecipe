@@ -62,12 +62,18 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.util.Calendar
+import com.example.myrecipe.model.Recipe
+import com.example.myrecipe.model.Category
+import com.example.myrecipe.model.ShoppingItem
+import com.example.myrecipe.model.MealPlan
+import com.example.myrecipe.R
+import kotlinx.coroutines.launch
 
 @Composable
 fun AutoScrollingRecipeRow(meals: List<Recipe>, onRecipeClick: (Recipe) -> Unit) {
     val pagerState = rememberPagerState(pageCount = { meals.size })
     LaunchedEffect(Unit) { while(true) { kotlinx.coroutines.delay(4000); if (pagerState.pageCount > 0) pagerState.animateScrollToPage((pagerState.currentPage + 1) % pagerState.pageCount) } }
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(220.dp), contentPadding = PaddingValues(horizontal = 32.dp), pageSpacing = 16.dp) { page -> RecipeCard(meals[page], { onRecipeClick(meals[page]) }, Modifier.fillMaxSize()) }
+    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(300.dp), contentPadding = PaddingValues(horizontal = 32.dp), pageSpacing = 16.dp) { page -> RecipeCard(meals[page], { onRecipeClick(meals[page]) }, Modifier.fillMaxSize()) }
 }
 
 @Composable
@@ -122,7 +128,7 @@ fun RecipeApp(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
             NavigationBar {
                 NavigationBarItem(selected = selectedTabState.intValue == 0, onClick = { selectedTabState.intValue = 0; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
                 NavigationBarItem(selected = selectedTabState.intValue == 1, onClick = { selectedTabState.intValue = 1; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Explore") })
-                NavigationBarItem(selected = selectedTabState.intValue == 2, onClick = { selectedTabState.intValue = 2 }, icon = { Icon(Icons.Default.RestaurantMenu, null) }, label = { Text("My Recipes") })
+                NavigationBarItem(selected = selectedTabState.intValue == 2, onClick = { selectedTabState.intValue = 2 }, icon = { Icon(Icons.Default.RestaurantMenu, null) }, label = { Text("My Recipes", textAlign = TextAlign.Center) })
                 NavigationBarItem(selected = selectedTabState.intValue == 3, onClick = { selectedTabState.intValue = 3; activeCategoryState.value = null }, icon = { Icon(Icons.Default.CalendarMonth, null) }, label = { Text("Planner") })
                 NavigationBarItem(selected = selectedTabState.intValue == 4, onClick = { selectedTabState.intValue = 4; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profile") })
             }
@@ -428,6 +434,22 @@ fun CookingModeDialog(recipe: Recipe, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                if (recipe.videoUri != null) {
+                    if (recipe.videoUri.toString().startsWith("http")) {
+                        Button(
+                            onClick = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.videoUri)) },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            colors = ButtonDefaults.buttonColors(Color.Red),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayCircle, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Watch Video Guide")
+                        }
+                    } else {
+                        VideoPlayer(recipe.videoUri, modifier = Modifier.padding(bottom = 16.dp))
+                    }
+                }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Step ${step + 1} of ${steps.size}", color = MaterialTheme.colorScheme.primary); IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) } }
                 LinearProgressIndicator(progress = { (step + 1).toFloat() / steps.size.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).height(8.dp).clip(CircleShape))
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(if (steps.isNotEmpty()) steps[step] else "None", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center) }

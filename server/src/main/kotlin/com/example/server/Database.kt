@@ -42,7 +42,7 @@ object Categories : Table("categories") {
 object ShoppingList : Table("shopping_list") {
     val id = varchar("id", 50)
     val name = varchar("name", 255)
-    val quantity = varchar("quantity", 100)
+    val quantity = varchar("quantity", 100).nullable()
     val category = varchar("category", 100)
     val isChecked = bool("is_checked")
     val owner = varchar("owner", 50)
