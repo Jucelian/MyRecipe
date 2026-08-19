@@ -12,16 +12,16 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = ChefPrimary,
+    primary = ChefDarkPrimary,
     secondary = ChefSecondary,
     tertiary = ChefTertiary,
-    background = ChefOnBackground,
-    surface = ChefSecondary,
-    onPrimary = ChefOnPrimary,
-    onSecondary = ChefOnPrimary,
-    onTertiary = ChefOnPrimary,
-    onBackground = ChefBackground,
-    onSurface = ChefBackground
+    background = ChefDarkBackground,
+    surface = ChefDarkSurface,
+    onPrimary = ChefDarkBackground,
+    onSecondary = ChefDarkOnBackground,
+    onTertiary = ChefDarkOnBackground,
+    onBackground = ChefDarkOnBackground,
+    onSurface = ChefDarkOnBackground
 )
 
 private val LightColorScheme = lightColorScheme(

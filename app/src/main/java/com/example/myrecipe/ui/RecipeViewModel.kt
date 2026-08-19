@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.myrecipe.data.AppDatabase
 import com.example.myrecipe.data.RecipeRepository
 import com.example.myrecipe.data.SyncWorker
+import com.example.myrecipe.data.MealReminderWorker
 import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.ShoppingItem
@@ -44,6 +45,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         currentOwner.value = owner
         if (owner.isNotBlank()) {
             SyncWorker.startPeriodicSync(getApplication(), owner)
+            MealReminderWorker.scheduleDailyReminder(getApplication())
             refreshData(owner)
         } else {
             SyncWorker.stopSync(getApplication())
@@ -506,6 +508,45 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun generateShoppingListForWeek() {
+        viewModelScope.launch {
+            try {
+                val startCalendar = java.util.Calendar.getInstance().apply {
+                    set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    set(java.util.Calendar.MINUTE, 0)
+                    set(java.util.Calendar.SECOND, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                }
+                val startTime = startCalendar.timeInMillis
+                val endTime = startTime + 7 * 24 * 60 * 60 * 1000L
+                
+                val weeklyPlans = mealPlans.value.filter { it.date in startTime until endTime }
+                val allRecipes = recipes.value
+                val currentShoppingList = shoppingList.value
+                
+                weeklyPlans.forEach { plan ->
+                    val recipe = allRecipes.find { it.id == plan.recipeId }
+                    recipe?.ingredients?.forEach { ingredient ->
+                        val existingItem = currentShoppingList.find { it.name.equals(ingredient, ignoreCase = true) && !it.isChecked }
+                        if (existingItem == null) {
+                            val item = ShoppingItem(
+                                name = ingredient,
+                                category = recipe.category ?: "Other",
+                                owner = currentOwner.value,
+                                recipeId = recipe.id,
+                                recipeTitle = recipe.title
+                            )
+                            repository.addShoppingItem(item)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("RecipeViewModel", "Failed to generate shopping list: ${e.message}")
+                _errorMessage.value = "Failed to generate shopping list: ${e.message}"
+            }
+        }
+    }
+
     fun toggleFavorite(recipe: Recipe) {
         viewModelScope.launch {
             repository.updateRecipe(recipe.copy(isFavorite = !recipe.isFavorite))
@@ -590,5 +631,56 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 _errorMessage.value = "Failed to save recipe: ${e.message}"
             }
         }
+    }
+
+    private val _aiGeneratedRecipe = MutableStateFlow<Recipe?>(null)
+    val aiGeneratedRecipe: StateFlow<Recipe?> = _aiGeneratedRecipe
+
+    private val _isGeneratingAI = MutableStateFlow(false)
+    val isGeneratingAI: StateFlow<Boolean> = _isGeneratingAI
+
+    fun generateRecipeFromIngredients(ingredients: List<String>) {
+        if (ingredients.isEmpty()) return
+        
+        viewModelScope.launch {
+            _isGeneratingAI.value = true
+            _aiGeneratedRecipe.value = null
+            try {
+                // Simulate AI logic by searching for recipes with these ingredients
+                val api = RetrofitClient.publicInstance
+                val firstIngredient = ingredients.first()
+                val response = api.getRecipesByIngredient(firstIngredient)
+                val mealId = response.meals?.randomOrNull()?.idMeal
+                
+                if (mealId != null) {
+                    val details = api.getRecipeDetails(mealId).meals?.firstOrNull()
+                    _aiGeneratedRecipe.value = details?.toRecipe()?.copy(owner = "AI Chef")
+                } else {
+                    // Fallback to a placeholder if no match found
+                    _aiGeneratedRecipe.value = Recipe(
+                        title = "AI Surprise: ${ingredients.joinToString(" & ")}",
+                        description = "A creative dish made with what you have!",
+                        ingredients = ingredients + listOf("Salt", "Pepper", "Olive Oil"),
+                        instructions = listOf(
+                            "Clean and prep all your ingredients.",
+                            "Saute the ${ingredients.joinToString(" and ")} in a pan with olive oil.",
+                            "Season with salt and pepper to taste.",
+                            "Serve hot and enjoy your AI-powered meal!"
+                        ),
+                        owner = "AI Chef",
+                        rating = 5.0,
+                        tags = listOf("AI", "Quick", "Custom")
+                    )
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "AI Generation failed: ${e.message}"
+            } finally {
+                _isGeneratingAI.value = false
+            }
+        }
+    }
+
+    fun clearAIRecipe() {
+        _aiGeneratedRecipe.value = null
     }
 }
