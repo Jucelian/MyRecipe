@@ -433,7 +433,15 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                             val currentNum = existingItem.quantity?.filter { it.isDigit() }?.toIntOrNull() ?: 1
                             "${currentNum + 1}"
                         } catch (e: Exception) { "2" }
-                        repository.updateShoppingItem(existingItem.copy(quantity = newQuantity, isSynced = false))
+                        
+                        // Update item: Keep existing recipe info if present, otherwise use current recipe
+                        val updatedItem = existingItem.copy(
+                            quantity = newQuantity,
+                            isSynced = false,
+                            recipeId = existingItem.recipeId ?: recipe.id,
+                            recipeTitle = existingItem.recipeTitle ?: recipe.title
+                        )
+                        repository.updateShoppingItem(updatedItem)
                     } else {
                         val item = ShoppingItem(
                             name = ingredient,
@@ -482,6 +490,16 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 repository.addMealPlan(plan)
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to add meal plan: ${e.message}"
+            }
+        }
+    }
+
+    fun updateMealPlan(plan: MealPlan) {
+        viewModelScope.launch {
+            try {
+                repository.addMealPlan(plan) // Repository uses insert (replace)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to update meal plan: ${e.message}"
             }
         }
     }

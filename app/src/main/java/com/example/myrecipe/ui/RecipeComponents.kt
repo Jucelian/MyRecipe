@@ -67,6 +67,12 @@ import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.ShoppingItem
 import com.example.myrecipe.model.MealPlan
 import com.example.myrecipe.R
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @Composable
@@ -133,7 +139,13 @@ fun RecipeApp(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
                 NavigationBarItem(selected = selectedTabState.intValue == 4, onClick = { selectedTabState.intValue = 4; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profile") })
             }
         },
-        floatingActionButton = { if (selectedTabState.intValue != 4) FloatingActionButton(onClick = { showAddDialogState.value = true }) { Icon(Icons.Default.Add, null) } }
+        floatingActionButton = {
+            if (selectedTabState.intValue != 3 && selectedTabState.intValue != 4) {
+                FloatingActionButton(onClick = { showAddDialogState.value = true }) {
+                    Icon(Icons.Default.Add, null)
+                }
+            }
+        }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             AnimatedContent(targetState = selectedTabState.intValue, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "TabTransition") { tab ->
@@ -265,7 +277,7 @@ fun RecipeItemRow(recipe: Recipe, onDelete: (() -> Unit)?, onClick: () -> Unit) 
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.size(90.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo))
             else Box(modifier = Modifier.size(90.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f)) }
-            Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp)); Text(" ${recipe.rating}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold); Spacer(Modifier.width(12.dp)); recipe.category?.let { Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(0.5f)) { Text(it, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
+            Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp)); Text(" ${recipe.rating}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold); Spacer(Modifier.width(12.dp)); recipe.category?.takeIf { it.isNotBlank() }?.let { Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(0.5f)) { Text(it, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
             if (onDelete != null) IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.7f)) }
             else Icon(Icons.Default.Public, null, tint = MaterialTheme.colorScheme.primary.copy(0.4f), modifier = Modifier.padding(8.dp).size(20.dp))
         }
@@ -281,7 +293,7 @@ fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifie
                 else Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Default.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f), modifier = Modifier.size(48.dp)) }
                 Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(0.9f)) { Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(recipe.rating.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) } }
             }
-            Column(modifier = Modifier.padding(16.dp)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, modifier = Modifier.padding(top = 4.dp)); Spacer(Modifier.weight(1f)); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { recipe.tags?.take(2)?.forEach { tag -> Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(0.4f)) { Text(tag, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
+            Column(modifier = Modifier.padding(16.dp)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, modifier = Modifier.padding(top = 4.dp)); Spacer(Modifier.weight(1f)); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { recipe.tags?.filter { it.isNotBlank() }?.take(2)?.forEach { tag -> Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(0.4f)) { Text(tag, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
         }
     }
 }
@@ -360,24 +372,49 @@ fun PlannerScreen(viewModel: RecipeViewModel) {
 @Composable
 fun MealPlanScreen(viewModel: RecipeViewModel) {
     val plans by viewModel.mealPlans.collectAsState()
+    val editMealPlanState = remember { mutableStateOf<MealPlan?>(null) }
+
     if (plans.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your meal plan is empty.", Icons.Default.CalendarToday) }
     else {
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            val grouped = plans.groupBy { java.text.SimpleDateFormat("EEEE, MMM d", java.util.Locale.getDefault()).format(java.util.Date(it.date)) }
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            val grouped = plans.groupBy { SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(Date(it.date)) }
             grouped.forEach { (date, dailyPlans) ->
                 item { Text(date, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
-                items(dailyPlans) { plan -> MealPlanRow(plan, onDelete = { viewModel.deleteMealPlan(plan) }) }
+                items(dailyPlans) { plan ->
+                    MealPlanRow(
+                        plan = plan,
+                        onDelete = { viewModel.deleteMealPlan(plan) },
+                        onEdit = { editMealPlanState.value = plan }
+                    )
+                }
             }
         }
+    }
+
+    editMealPlanState.value?.let { plan ->
+        ScheduleMealDialog(
+            initialDate = plan.date,
+            initialType = plan.mealType,
+            onDismiss = { editMealPlanState.value = null },
+            onSchedule = { d, t ->
+                viewModel.updateMealPlan(plan.copy(date = d, mealType = t, isSynced = false))
+                editMealPlanState.value = null
+            }
+        )
     }
 }
 
 @Composable
-fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))) {
+fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit, onEdit: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))
+    ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) { Text(plan.mealType, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
             Spacer(Modifier.width(16.dp)); Text(plan.recipeTitle, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary.copy(0.6f)) }
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.5f)) }
         }
     }
@@ -390,7 +427,7 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
         if (items.any { it.isChecked }) { TextButton(onClick = { viewModel.clearCheckedShoppingItems() }, modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp)) { Text("Clear Completed") } }
         if (items.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Shopping list is empty.", Icons.Default.ListAlt) }
         else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items) { item -> ShoppingItemRow(item, onToggle = { viewModel.toggleShoppingItem(item) }, onDelete = { viewModel.deleteShoppingItem(item) }) }
             }
         }
@@ -490,11 +527,62 @@ fun CookingModeDialog(recipe: Recipe, onDismiss: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleMealDialog(onDismiss: () -> Unit, onSchedule: (Long, String) -> Unit) {
-    val date = remember { mutableStateOf(System.currentTimeMillis()) }
-    val type = remember { mutableStateOf("Lunch") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Schedule Meal") }, text = { Column { Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) { listOf("Breakfast", "Lunch", "Dinner").forEach { t -> FilterChip(selected = type.value == t, onClick = { type.value = t }, label = { Text(t) }) } } } }, confirmButton = { Button(onClick = { onSchedule(date.value, type.value) }) { Text("Schedule") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+fun ScheduleMealDialog(initialDate: Long? = null, initialType: String? = null, onDismiss: () -> Unit, onSchedule: (Long, String) -> Unit) {
+    val dateState = rememberDatePickerState(initialSelectedDateMillis = initialDate ?: System.currentTimeMillis())
+    val type = remember { mutableStateOf(initialType ?: "Lunch") }
+    var showDatePicker by remember { mutableStateOf(false) }
+    
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = { TextButton(onClick = { showDatePicker = false }) { Text("OK") } }
+        ) {
+            DatePicker(state = dateState)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialDate != null) "Update Meal" else "Schedule Meal") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedCard(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CalendarToday, null)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
+                                .format(Date(dateState.selectedDateMillis ?: System.currentTimeMillis())),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+                    listOf("Breakfast", "Lunch", "Dinner").forEach { t ->
+                        FilterChip(
+                            selected = type.value == t,
+                            onClick = { type.value = t },
+                            label = { Text(t) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSchedule(dateState.selectedDateMillis ?: System.currentTimeMillis(), type.value) }) {
+                Text(if (initialDate != null) "Update" else "Schedule")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
