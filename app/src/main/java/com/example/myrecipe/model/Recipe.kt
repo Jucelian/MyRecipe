@@ -24,5 +24,6 @@ data class Recipe(
     val isFavorite: Boolean = false,
     val isSynced: Boolean = false,
     val owner: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isPublic: Boolean = false
 )

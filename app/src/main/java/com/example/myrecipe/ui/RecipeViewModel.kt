@@ -10,6 +10,8 @@ import com.example.myrecipe.data.RecipeRepository
 import com.example.myrecipe.data.SyncWorker
 import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
+import com.example.myrecipe.model.ShoppingItem
+import com.example.myrecipe.model.MealPlan
 import com.example.myrecipe.network.RetrofitClient
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +29,8 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val repository = RecipeRepository(
         database.recipeDao(),
         database.categoryDao(),
+        database.shoppingDao(),
+        database.mealPlanDao(),
         RetrofitClient.instance
     )
 
@@ -215,6 +219,27 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = emptyList()
     )
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val shoppingList: StateFlow<List<ShoppingItem>> = currentOwner.flatMapLatest { owner ->
+        repository.getShoppingList(owner)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val mealPlans: StateFlow<List<MealPlan>> = currentOwner.flatMapLatest { owner ->
+        repository.getMealPlans(owner)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _communityRecipes = MutableStateFlow<List<Recipe>>(emptyList())
+    val communityRecipes: StateFlow<List<Recipe>> = _communityRecipes
+
     fun refreshData(owner: String, forceDailyRefresh: Boolean = false) {
         if (owner.isBlank() || _isRefreshing.value) return
         currentOwner.value = owner
@@ -225,11 +250,28 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 repository.refreshData(owner)
                 // Refresh daily picks if new day or forced
                 fetchDailyRecipes(forceRandom = forceDailyRefresh)
+                // Also fetch community recipes
+                fetchCommunityRecipes()
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to sync data: ${e.message}"
             } finally {
                 _isRefreshing.value = false
             }
+        }
+    }
+
+    private suspend fun fetchCommunityRecipes() {
+        try {
+            val recipes = RetrofitClient.instance.getCommunityRecipes()
+            _communityRecipes.value = recipes.filter { it.owner != currentOwner.value }
+        } catch (e: Exception) {
+            Log.e("RecipeViewModel", "Failed to fetch community: ${e.message}")
+        }
+    }
+
+    fun togglePublish(recipe: Recipe) {
+        viewModelScope.launch {
+            repository.updateRecipe(recipe.copy(isPublic = !recipe.isPublic, isSynced = false))
         }
     }
 
@@ -374,6 +416,77 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to delete category: ${e.message}"
             }
+        }
+    }
+
+    fun addIngredientsToShoppingList(recipe: Recipe) {
+        viewModelScope.launch {
+            try {
+                val currentList = shoppingList.value
+                recipe.ingredients?.forEach { ingredient ->
+                    // Check if item already exists (simple name match)
+                    val existingItem = currentList.find { it.name.equals(ingredient, ignoreCase = true) && !it.isChecked }
+                    
+                    if (existingItem != null) {
+                        // Increment quantity if possible (very basic parser)
+                        val newQuantity = try {
+                            val currentNum = existingItem.quantity.filter { it.isDigit() }.toIntOrNull() ?: 1
+                            "${currentNum + 1}"
+                        } catch (e: Exception) { "2" }
+                        repository.updateShoppingItem(existingItem.copy(quantity = newQuantity, isSynced = false))
+                    } else {
+                        val item = ShoppingItem(
+                            name = ingredient,
+                            category = recipe.category ?: "Other",
+                            owner = currentOwner.value
+                        )
+                        repository.addShoppingItem(item)
+                    }
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add ingredients: ${e.message}"
+            }
+        }
+    }
+
+    fun toggleShoppingItem(item: ShoppingItem) {
+        viewModelScope.launch {
+            repository.updateShoppingItem(item.copy(isChecked = !item.isChecked))
+        }
+    }
+
+    fun deleteShoppingItem(item: ShoppingItem) {
+        viewModelScope.launch {
+            repository.deleteShoppingItem(item)
+        }
+    }
+
+    fun clearCheckedShoppingItems() {
+        viewModelScope.launch {
+            repository.clearCheckedShoppingItems(currentOwner.value)
+        }
+    }
+
+    fun addMealPlan(recipe: Recipe, date: Long, mealType: String) {
+        viewModelScope.launch {
+            try {
+                val plan = MealPlan(
+                    recipeId = recipe.id,
+                    recipeTitle = recipe.title,
+                    date = date,
+                    mealType = mealType,
+                    owner = currentOwner.value
+                )
+                repository.addMealPlan(plan)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add meal plan: ${e.message}"
+            }
+        }
+    }
+
+    fun deleteMealPlan(plan: MealPlan) {
+        viewModelScope.launch {
+            repository.deleteMealPlan(plan)
         }
     }
 

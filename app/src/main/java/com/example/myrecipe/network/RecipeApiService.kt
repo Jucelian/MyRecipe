@@ -4,6 +4,8 @@ import com.example.myrecipe.model.Category
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.User
 import com.example.myrecipe.model.UpdateInfo
+import com.example.myrecipe.model.ShoppingItem
+import com.example.myrecipe.model.MealPlan
 import okhttp3.MultipartBody
 import retrofit2.http.*
 
@@ -30,6 +32,9 @@ interface RecipeApiService {
     @POST("upload")
     suspend fun uploadImage(@Part image: MultipartBody.Part): Map<String, String>
 
+    @GET("recipes/community")
+    suspend fun getCommunityRecipes(): List<Recipe>
+
     @GET("recipes/{owner}")
     suspend fun getRecipes(@Path("owner") owner: String): List<Recipe>
 
@@ -47,4 +52,22 @@ interface RecipeApiService {
 
     @DELETE("categories/{id}")
     suspend fun deleteCategory(@Path("id") id: String): Map<String, String>
+
+    @GET("shopping/{owner}")
+    suspend fun getShoppingList(@Path("owner") owner: String): List<ShoppingItem>
+
+    @POST("shopping")
+    suspend fun addShoppingItem(@Body item: ShoppingItem): Map<String, String>
+
+    @DELETE("shopping/{id}")
+    suspend fun deleteShoppingItem(@Path("id") id: String): Map<String, String>
+
+    @GET("planner/{owner}")
+    suspend fun getMealPlans(@Path("owner") owner: String): List<MealPlan>
+
+    @POST("planner")
+    suspend fun addMealPlan(@Body plan: MealPlan): Map<String, String>
+
+    @DELETE("planner/{id}")
+    suspend fun deleteMealPlan(@Path("id") id: String): Map<String, String>
 }

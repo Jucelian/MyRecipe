@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
@@ -46,12 +47,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -60,86 +63,35 @@ import coil.request.ImageRequest
 import com.example.myrecipe.R
 import com.example.myrecipe.model.Recipe
 import com.example.myrecipe.model.Category
+import com.example.myrecipe.model.ShoppingItem
+import com.example.myrecipe.model.MealPlan
 import java.io.File
 import java.util.Calendar
 
 @Composable
-fun AutoScrollingRecipeRow(
-    meals: List<Recipe>,
-    onRecipeClick: (Recipe) -> Unit
-) {
+fun AutoScrollingRecipeRow(meals: List<Recipe>, onRecipeClick: (Recipe) -> Unit) {
     if (meals.isEmpty()) return
-    
-    // We use a large number of pages to simulate an infinite loop
-    val loopCount = 1000
-    val totalPages = meals.size * loopCount
-    val initialPage = (meals.size * loopCount) / 2
-    val pagerState = rememberPagerState(pageCount = { totalPages }, initialPage = initialPage)
-    
-    // Auto-scroll effect
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(4000) // Scroll every 4 seconds
-            if (!pagerState.isScrollInProgress) {
-                val nextPage = pagerState.currentPage + 1
-                pagerState.animateScrollToPage(nextPage)
-            }
-        }
-    }
-
-    HorizontalPager(
-        state = pagerState,
-        contentPadding = PaddingValues(horizontal = 40.dp),
-        pageSpacing = 16.dp,
-        modifier = Modifier.fillMaxWidth().height(310.dp)
-    ) { page ->
-        val actualIndex = page % meals.size
-        val meal = meals[actualIndex]
-        
-        RecipeCard(
-            recipe = meal,
-            onClick = { onRecipeClick(meal) },
-            modifier = Modifier.fillMaxWidth()
-        )
+    val totalPages = meals.size * 1000
+    val pagerState = rememberPagerState(pageCount = { totalPages }, initialPage = totalPages / 2)
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(4000); if (!pagerState.isScrollInProgress) pagerState.animateScrollToPage(pagerState.currentPage + 1) } }
+    HorizontalPager(state = pagerState, contentPadding = PaddingValues(horizontal = 40.dp), pageSpacing = 16.dp, modifier = Modifier.fillMaxWidth().height(310.dp)) { page ->
+        val meal = meals[page % meals.size]
+        RecipeCard(recipe = meal, onClick = { onRecipeClick(meal) }, modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
 fun VideoPlayer(videoUri: Uri, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUri))
-            prepare()
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
-    AndroidView(
-        factory = {
-            PlayerView(it).apply {
-                player = exoPlayer
-                useController = true
-            }
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .height(250.dp)
-            .clip(RoundedCornerShape(16.dp))
-    )
+    val exoPlayer = remember { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(videoUri)); prepare() } }
+    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+    AndroidView(factory = { PlayerView(it).apply { player = exoPlayer; useController = true } }, modifier = modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(16.dp)))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecipeApp(
-    viewModel: RecipeViewModel,
-    authViewModel: AuthViewModel
-) {
+fun RecipeApp(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
+    val context = LocalContext.current
     val showAddDialogState = remember { mutableStateOf(false) }
     val activeCategoryState = remember { mutableStateOf<String?>(null) }
     val searchQueryState = remember { mutableStateOf("") }
@@ -148,1316 +100,424 @@ fun RecipeApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val errorMessage by viewModel.errorMessage.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val recipeToScheduleState = remember { mutableStateOf<Recipe?>(null) }
+    val recipeToCookState = remember { mutableStateOf<Recipe?>(null) }
 
     LaunchedEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                currentUser?.let {
-                    viewModel.refreshData(it.username)
-                }
-            }
-        }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) currentUser?.let { viewModel.refreshData(it.username) } }
         lifecycleOwner.lifecycle.addObserver(observer)
     }
-
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearError()
-        }
-    }
-
-    LaunchedEffect(currentUser) {
-        currentUser?.let {
-            viewModel.setCurrentOwner(it.username)
-        }
-    }
+    LaunchedEffect(errorMessage) { errorMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearError() } }
+    LaunchedEffect(currentUser) { currentUser?.let { viewModel.setCurrentOwner(it.username) } }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            AnimatedVisibility(
-                visible = selectedTabState.intValue != 3,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.secondary)
-                        .statusBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            AnimatedVisibility(visible = selectedTabState.intValue != 4, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondary).statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (selectedTabState.intValue == 1 || selectedTabState.intValue == 2) {
-                        SearchBar(
-                            query = searchQueryState.value,
-                            onQueryChange = { searchQueryState.value = it },
-                            modifier = Modifier.weight(1f)
-                        )
+                        SearchBar(query = searchQueryState.value, onQueryChange = { searchQueryState.value = it }, modifier = Modifier.weight(1f))
                     } else {
-                        // Title for Home screen
-                        Text(
-                            text = "ChefMate",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Text(text = "ChefMate", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White, modifier = Modifier.weight(1f))
                     }
                     Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = { authViewModel.logout() },
-                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.15f))
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = "Logout",
-                            tint = Color.White
-                        )
+                    IconButton(onClick = { authViewModel.logout() }, colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.15f))) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Logout", tint = Color.White)
                     }
                 }
             }
         },
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(
-                    selected = selectedTabState.intValue == 0,
-                    onClick = { 
-                        selectedTabState.intValue = 0
-                        activeCategoryState.value = null
-                    },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("Home") }
-                )
-                NavigationBarItem(
-                    selected = selectedTabState.intValue == 1,
-                    onClick = { 
-                        selectedTabState.intValue = 1
-                        activeCategoryState.value = null
-                    },
-                    icon = { Icon(Icons.Default.Search, contentDescription = "Explore") },
-                    label = { Text("Explore") }
-                )
-                NavigationBarItem(
-                    selected = selectedTabState.intValue == 2,
-                    onClick = { selectedTabState.intValue = 2 },
-                    icon = { Icon(Icons.Default.RestaurantMenu, contentDescription = "My Recipes") },
-                    label = { Text("My Recipes") }
-                )
-                NavigationBarItem(
-                    selected = selectedTabState.intValue == 3,
-                    onClick = { 
-                        selectedTabState.intValue = 3
-                        activeCategoryState.value = null
-                    },
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                    label = { Text("Profile") }
-                )
+                NavigationBarItem(selected = selectedTabState.intValue == 0, onClick = { selectedTabState.intValue = 0; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
+                NavigationBarItem(selected = selectedTabState.intValue == 1, onClick = { selectedTabState.intValue = 1; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Explore") })
+                NavigationBarItem(selected = selectedTabState.intValue == 2, onClick = { selectedTabState.intValue = 2 }, icon = { Icon(Icons.Default.RestaurantMenu, null) }, label = { Text("My Recipes") })
+                NavigationBarItem(selected = selectedTabState.intValue == 3, onClick = { selectedTabState.intValue = 3; activeCategoryState.value = null }, icon = { Icon(Icons.Default.CalendarMonth, null) }, label = { Text("Planner") })
+                NavigationBarItem(selected = selectedTabState.intValue == 4, onClick = { selectedTabState.intValue = 4; activeCategoryState.value = null }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profile") })
             }
         },
-        floatingActionButton = {
-            if (selectedTabState.intValue != 3) {
-                FloatingActionButton(onClick = { showAddDialogState.value = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Recipe")
-                }
-            }
-        }
+        floatingActionButton = { if (selectedTabState.intValue != 4) FloatingActionButton(onClick = { showAddDialogState.value = true }) { Icon(Icons.Default.Add, null) } }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            AnimatedContent(
-                targetState = selectedTabState.intValue,
-                transitionSpec = {
-                    fadeIn() togetherWith fadeOut()
-                },
-                label = "TabTransition"
-            ) { tab ->
+            AnimatedContent(targetState = selectedTabState.intValue, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "TabTransition") { tab ->
                 when (tab) {
-                    0 -> HomeScreen(viewModel, authViewModel)
-                    1 -> ExploreScreen(viewModel, searchQueryState.value)
-                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it })
-                    3 -> ProfileScreen(authViewModel, viewModel)
+                    0 -> HomeScreen(viewModel, authViewModel, onScheduleRecipe = { recipeToScheduleState.value = it })
+                    1 -> ExploreScreen(viewModel, searchQueryState.value, onScheduleRecipe = { recipeToScheduleState.value = it })
+                    2 -> MyRecipesTab(viewModel, currentUser?.username ?: "", onCategorySelected = { activeCategoryState.value = it }, onScheduleRecipe = { recipeToScheduleState.value = it })
+                    3 -> PlannerScreen(viewModel)
+                    4 -> ProfileScreen(authViewModel, viewModel)
                 }
             }
         }
-
-        if (showAddDialogState.value) {
-            AddRecipeDialog(
-                viewModel = viewModel,
-                initialCategory = activeCategoryState.value,
-                onDismiss = { showAddDialogState.value = false },
-                onRecipeAdded = { recipe ->
-                    viewModel.addRecipe(recipe.copy(owner = currentUser?.username ?: ""))
-                    showAddDialogState.value = false
-                }
-            )
-        }
+        if (showAddDialogState.value) { AddRecipeDialog(viewModel = viewModel, initialCategory = activeCategoryState.value, onDismiss = { showAddDialogState.value = false }, onRecipeAdded = { viewModel.addRecipe(it.copy(owner = currentUser?.username ?: "")); showAddDialogState.value = false }) }
+        if (recipeToScheduleState.value != null) { ScheduleMealDialog(onDismiss = { recipeToScheduleState.value = null }, onSchedule = { d, t -> viewModel.addMealPlan(recipeToScheduleState.value!!, d, t); recipeToScheduleState.value = null; Toast.makeText(context, "Meal scheduled!", Toast.LENGTH_SHORT).show() }) }
+        if (recipeToCookState.value != null) { CookingModeDialog(recipe = recipeToCookState.value!!, onDismiss = { recipeToCookState.value = null }) }
     }
 }
 
 @Composable
 fun EmptyState(message: String, icon: ImageVector) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Icon(icon, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+        Spacer(Modifier.height(16.dp))
+        Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel) {
+fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel, onScheduleRecipe: (Recipe) -> Unit) {
     val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
-    
-    val recipesState = viewModel.recipes.collectAsState()
-    val categoriesState = viewModel.categories.collectAsState()
-    val isRefreshingState = viewModel.isRefreshing.collectAsState()
-    val dailyRecipesState = viewModel.dailyRecipes.collectAsState()
-    
-    val recipes = recipesState.value
-    val isRefreshing = isRefreshingState.value
-    val dailyRecipes = dailyRecipesState.value
-    
+    val recipes by viewModel.recipes.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val dailyRecipes by viewModel.dailyRecipes.collectAsState()
     val isDailyPicksExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("daily_picks")) }
     val isRecentMealsExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("recent_meals")) }
     val isFavoritesExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("favorites")) }
     val isExploreAllExpanded = remember { mutableStateOf(authViewModel.isSectionExpanded("explore_all")) }
-    
     val currentUser = authViewModel.currentUser.value
-
-    val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-        in 0..11 -> "Good Morning"
-        in 12..17 -> "Good Afternoon"
-        else -> "Good Evening"
-    }
-
-    LaunchedEffect(Unit) {
-        currentUser?.let {
-            viewModel.setCurrentOwner(it.username)
-        }
-    }
-
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { 
-            currentUser?.let { viewModel.refreshData(it.username, forceDailyRefresh = true) }
-        },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
+    val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) { in 0..11 -> "Good Morning"; in 12..17 -> "Good Afternoon"; else -> "Good Evening" }
+    LaunchedEffect(Unit) { currentUser?.let { viewModel.setCurrentOwner(it.username) } }
+    PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = { currentUser?.let { viewModel.refreshData(it.username, true) } }, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (dailyRecipes.isNotEmpty()) {
                 item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { 
-                                isDailyPicksExpanded.value = !isDailyPicksExpanded.value
-                                authViewModel.setSectionExpanded("daily_picks", isDailyPicksExpanded.value)
-                            }
-                            .padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                text = "Daily Chef's Picks",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Today's Inspiration",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                        Icon(
-                            imageVector = if (isDailyPicksExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (isDailyPicksExpanded.value) "Collapse" else "Expand",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    Row(modifier = Modifier.fillMaxWidth().clickable { isDailyPicksExpanded.value = !isDailyPicksExpanded.value; authViewModel.setSectionExpanded("daily_picks", isDailyPicksExpanded.value) }.padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column { Text("Daily Chef's Picks", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold); Text("Today's Inspiration", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground) }
+                        Icon(if (isDailyPicksExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-                
                 if (isDailyPicksExpanded.value) {
                     dailyRecipes.forEach { (category, meals) ->
-                        item {
-                            Text(
-                                text = category,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        item {
-                            AutoScrollingRecipeRow(
-                                meals = meals,
-                                onRecipeClick = { selectedRecipeState.value = it }
-                            )
-                        }
+                        item { Text(category, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.secondary) }
+                        item { AutoScrollingRecipeRow(meals = meals, onRecipeClick = { selectedRecipeState.value = it }) }
                     }
-
-                    item {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                        )
-                    }
+                    item { HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)) }
                 }
             }
-
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { 
-                            isRecentMealsExpanded.value = !isRecentMealsExpanded.value
-                            authViewModel.setSectionExpanded("recent_meals", isRecentMealsExpanded.value)
-                        }
-                        .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "$greeting, Chef!",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Recently Added Meals",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    Icon(
-                        imageVector = if (isRecentMealsExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (isRecentMealsExpanded.value) "Collapse" else "Expand",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                Row(modifier = Modifier.fillMaxWidth().clickable { isRecentMealsExpanded.value = !isRecentMealsExpanded.value; authViewModel.setSectionExpanded("recent_meals", isRecentMealsExpanded.value) }.padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column { Text("$greeting, Chef!", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold); Text("Recently Added Meals", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground) }
+                    Icon(if (isRecentMealsExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary)
                 }
             }
             if (isRecentMealsExpanded.value) {
                 item {
-                    val recentRecipes = recipes.take(5)
-                    if (recentRecipes.isEmpty()) {
-                        EmptyState(
-                            message = "No recipes yet.\nStart by adding your first meal!",
-                            icon = Icons.Default.RestaurantMenu
-                        )
-                    } else {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(recentRecipes, key = { it.id }) { recipe ->
-                                RecipeCard(
-                                    recipe = recipe,
-                                    onClick = { selectedRecipeState.value = recipe },
-                                    modifier = Modifier.animateItem()
-                                )
-                            }
-                        }
-                    }
+                    val recent = recipes.take(5)
+                    if (recent.isEmpty()) EmptyState("No recipes yet.\nStart by adding your first meal!", Icons.Default.RestaurantMenu)
+                    else LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(recent, key = { it.id }) { RecipeCard(it, { selectedRecipeState.value = it }, Modifier.animateItem()) } }
                 }
             }
-
-            val favoriteRecipes = recipes.filter { it.isFavorite }
-            if (favoriteRecipes.isNotEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { 
-                                isFavoritesExpanded.value = !isFavoritesExpanded.value
-                                authViewModel.setSectionExpanded("favorites", isFavoritesExpanded.value)
-                            }
-                            .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Your Favorites",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Icon(
-                            imageVector = if (isFavoritesExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (isFavoritesExpanded.value) "Collapse" else "Expand",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                if (isFavoritesExpanded.value) {
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(favoriteRecipes, key = { it.id }) { recipe ->
-                                RecipeCard(
-                                    recipe = recipe,
-                                    onClick = { selectedRecipeState.value = recipe },
-                                    modifier = Modifier.animateItem()
-                                )
-                            }
-                        }
-                    }
-                }
+            val favorites = recipes.filter { it.isFavorite }
+            if (favorites.isNotEmpty()) {
+                item { Row(modifier = Modifier.fillMaxWidth().clickable { isFavoritesExpanded.value = !isFavoritesExpanded.value; authViewModel.setSectionExpanded("favorites", isFavoritesExpanded.value) }.padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text("Your Favorites", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground); Icon(if (isFavoritesExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary) } }
+                if (isFavoritesExpanded.value) { item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(favorites, key = { it.id }) { RecipeCard(it, { selectedRecipeState.value = it }, Modifier.animateItem()) } } } }
             }
-
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { 
-                            isExploreAllExpanded.value = !isExploreAllExpanded.value
-                            authViewModel.setSectionExpanded("explore_all", isExploreAllExpanded.value)
-                        }
-                        .padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Explore All",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Icon(
-                        imageVector = if (isExploreAllExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (isExploreAllExpanded.value) "Collapse" else "Expand",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
+            item { Row(modifier = Modifier.fillMaxWidth().clickable { isExploreAllExpanded.value = !isExploreAllExpanded.value; authViewModel.setSectionExpanded("explore_all", isExploreAllExpanded.value) }.padding(start = 20.dp, top = 24.dp, bottom = 12.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Text("Explore All", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground); Icon(if (isExploreAllExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary) } }
             if (isExploreAllExpanded.value) {
-                if (recipes.isEmpty() && !isRefreshing) {
-                    item {
-                        EmptyState(
-                            message = "Your collection is empty.",
-                            icon = Icons.Default.Inventory2
-                        )
-                    }
-                } else {
-                    items(recipes, key = { it.id }) { recipe ->
-                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) {
-                            RecipeItemRow(
-                                recipe = recipe,
-                                onDelete = { recipeToDeleteState.value = recipe },
-                                onClick = { selectedRecipeState.value = recipe }
-                            )
-                        }
-                    }
-                }
+                if (recipes.isEmpty() && !isRefreshing) item { EmptyState("Your collection is empty.", Icons.Default.Inventory2) }
+                else items(recipes, key = { it.id }) { recipe -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateItem()) { RecipeItemRow(recipe, { recipeToDeleteState.value = recipe }, { selectedRecipeState.value = recipe }) } }
             }
         }
     }
-
-    recipeToDeleteState.value?.let { recipe ->
-        DeleteRecipeConfirmationDialog(
-            recipeName = recipe.title,
-            onConfirm = {
-                viewModel.deleteRecipe(recipe)
-                recipeToDeleteState.value = null
-            },
-            onDismiss = { recipeToDeleteState.value = null }
-        )
-    }
-
-    selectedRecipeState.value?.let { recipe ->
-        RecipeDetailDialog(
-            recipe = recipe,
-            onDismiss = { selectedRecipeState.value = null },
-            onToggleFavorite = { viewModel.toggleFavorite(recipe) },
-            onEdit = {
-                recipeToEditState.value = recipe
-                selectedRecipeState.value = null
-            },
-            onSave = {
-                recipeToSaveState.value = recipe
-                selectedRecipeState.value = null
-            }
-        )
-    }
-
-    recipeToSaveState.value?.let { recipe ->
-        SaveRecipeWithCategoryDialog(
-            categories = categoriesState.value,
-            onDismiss = { recipeToSaveState.value = null },
-            onSave = { category ->
-                viewModel.savePublicRecipe(recipe, category)
-                recipeToSaveState.value = null
-                Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
-
-    recipeToEditState.value?.let { recipe ->
-        EditRecipeDialog(
-            recipe = recipe,
-            viewModel = viewModel,
-            onDismiss = { recipeToEditState.value = null },
-            onRecipeUpdated = { updatedRecipe ->
-                viewModel.updateRecipe(updatedRecipe)
-                recipeToEditState.value = null
-            }
-        )
-    }
+    recipeToDeleteState.value?.let { r -> DeleteRecipeConfirmationDialog(r.title, { viewModel.deleteRecipe(r); recipeToDeleteState.value = null }, { recipeToDeleteState.value = null }) }
+    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { recipeToEditState.value = r; selectedRecipeState.value = null }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }, { /* onStartCooking */ }) }
+    recipeToSaveState.value?.let { r -> SaveRecipeWithCategoryDialog(viewModel.categories.value, { recipeToSaveState.value = null }, { cat -> viewModel.savePublicRecipe(r, cat); recipeToSaveState.value = null; Toast.makeText(context, "Saved to $cat!", Toast.LENGTH_SHORT).show() }) }
+    recipeToEditState.value?.let { r -> EditRecipeDialog(r, viewModel, { recipeToEditState.value = null }, { updated -> viewModel.updateRecipe(updated); recipeToEditState.value = null }) }
 }
 
 @Composable
-fun ExploreScreen(viewModel: RecipeViewModel, query: String) {
+fun ExploreScreen(viewModel: RecipeViewModel, query: String, onScheduleRecipe: (Recipe) -> Unit) {
     val context = LocalContext.current
     val selectedRecipeState = remember { mutableStateOf<Recipe?>(null) }
-    val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
-    val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
     val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
-
-    val recipesState = viewModel.recipes.collectAsState()
-    val categoriesState = viewModel.categories.collectAsState()
     val publicResults by viewModel.publicSearchResults.collectAsState()
     val isSearchingPublic by viewModel.isSearchingPublic.collectAsState()
-    
-    val recipes = recipesState.value
-    
-    // Trigger public search when query changes
-    LaunchedEffect(query) {
+    val communityRecipes by viewModel.communityRecipes.collectAsState()
+    val recipes by viewModel.recipes.collectAsState()
+    LaunchedEffect(query) { if (query.length >= 3) viewModel.searchPublicRecipes(query) }
+    val filteredLocal = if (query.isEmpty()) recipes else recipes.filter { it.title.contains(query, true) || it.description?.contains(query, true) == true || it.tags?.any { t -> t.contains(query, true) } == true }
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { Text(if (query.isEmpty()) "Discover Recipes" else "Search Results", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) }
+        if (filteredLocal.isNotEmpty()) {
+            item { Text("Your Collection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.primary) }
+            items(filteredLocal) { r -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { RecipeItemRow(r, null, { selectedRecipeState.value = r }) } }
+        }
+        if (communityRecipes.isNotEmpty() && query.isEmpty()) {
+            item { Text("Community Favorites", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp), color = MaterialTheme.colorScheme.tertiary) }
+            item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(communityRecipes) { r -> RecipeCard(r, { selectedRecipeState.value = r }, Modifier.width(180.dp)) } } }
+        }
         if (query.length >= 3) {
-            viewModel.searchPublicRecipes(query)
+            item { Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) { Text("Online Recipes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.weight(1f)); if (isSearchingPublic) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp) } }
+            if (publicResults.isEmpty() && !isSearchingPublic) item { Text("No results found for '$query'", modifier = Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, color = Color.Gray) }
+            else items(publicResults) { r -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { RecipeItemRow(r, null, { selectedRecipeState.value = r }) } }
         }
+        if (filteredLocal.isEmpty() && (query.length < 3 || (publicResults.isEmpty() && !isSearchingPublic))) item { EmptyState(if (query.isEmpty()) "No recipes yet." else "Keep typing...", if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.Search) }
     }
-
-    val filteredLocalRecipes = if (query.isEmpty()) {
-        recipes
-    } else {
-        recipes.filter {
-            it.title.contains(query, ignoreCase = true) ||
-                    it.description?.contains(query, ignoreCase = true) == true ||
-                    it.tags?.any { tag -> tag.contains(query, ignoreCase = true) } == true
-        }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            Text(
-                text = if (query.isEmpty()) "Discover Recipes" else "Search Results",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
-
-        // Section 1: Your Recipes
-        if (filteredLocalRecipes.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Your Collection",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            items(filteredLocalRecipes) { recipe ->
-                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    RecipeItemRow(
-                        recipe = recipe,
-                        onDelete = { recipeToDeleteState.value = recipe },
-                        onClick = { selectedRecipeState.value = recipe }
-                    )
-                }
-            }
-        }
-
-        // Section 2: Online Recipes
-        if (query.length >= 3) {
-            item {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Online Recipes",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (isSearchingPublic) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    }
-                }
-            }
-
-            if (publicResults.isEmpty() && !isSearchingPublic) {
-                item {
-                    Text(
-                        text = "No online recipes found for '$query'",
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        textAlign = TextAlign.Center,
-                        color = Color.Gray
-                    )
-                }
-            } else {
-                items(publicResults) { recipe ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        RecipeItemRow(
-                            recipe = recipe,
-                            onDelete = null, // Can't delete public recipes
-                            onClick = { selectedRecipeState.value = recipe }
-                        )
-                    }
-                }
-            }
-        }
-
-        if (filteredLocalRecipes.isEmpty() && (query.length < 3 || (publicResults.isEmpty() && !isSearchingPublic))) {
-            item {
-                EmptyState(
-                    message = if (query.isEmpty()) "No recipes added yet." else "Keep typing to search online...",
-                    icon = if (query.isEmpty()) Icons.Default.Kitchen else Icons.Default.Search
-                )
-            }
-        }
-    }
-
-    recipeToDeleteState.value?.let { recipe ->
-        DeleteRecipeConfirmationDialog(
-            recipeName = recipe.title,
-            onConfirm = {
-                viewModel.deleteRecipe(recipe)
-                recipeToDeleteState.value = null
-            },
-            onDismiss = { recipeToDeleteState.value = null }
-        )
-    }
-
-    selectedRecipeState.value?.let { recipe ->
-        RecipeDetailDialog(
-            recipe = recipe,
-            onDismiss = { selectedRecipeState.value = null },
-            onToggleFavorite = { viewModel.toggleFavorite(recipe) },
-            onEdit = {
-                recipeToEditState.value = recipe
-                selectedRecipeState.value = null
-            },
-            onSave = {
-                recipeToSaveState.value = recipe
-                selectedRecipeState.value = null
-            }
-        )
-    }
-
-    recipeToSaveState.value?.let { recipe ->
-        SaveRecipeWithCategoryDialog(
-            categories = categoriesState.value,
-            onDismiss = { recipeToSaveState.value = null },
-            onSave = { category ->
-                viewModel.savePublicRecipe(recipe, category)
-                recipeToSaveState.value = null
-                Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
-
-    recipeToEditState.value?.let { recipe ->
-        EditRecipeDialog(
-            recipe = recipe,
-            viewModel = viewModel,
-            onDismiss = { recipeToEditState.value = null },
-            onRecipeUpdated = { updatedRecipe ->
-                viewModel.updateRecipe(updatedRecipe)
-                recipeToEditState.value = null
-            }
-        )
-    }
-}
-
-@Composable
-fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}) {
-    val context = LocalContext.current
-    val selectedCategoryState = remember { mutableStateOf<String?>(null) }
-    
-    LaunchedEffect(selectedCategoryState.value) {
-        onCategorySelected(selectedCategoryState.value)
-    }
-    
-    val showAddCategoryDialogState = remember { mutableStateOf(false) }
-    val showEditCategoryDialogState = remember { mutableStateOf(false) }
-    val showDeleteConfirmationDialog = remember { mutableStateOf(false) }
-    val categoryToDelete = remember { mutableStateOf<Category?>(null) }
-    val categoryToEdit = remember { mutableStateOf<Category?>(null) }
-    val recipeToSaveState = remember { mutableStateOf<Recipe?>(null) }
-    
-    val recipesState = viewModel.recipes.collectAsState()
-    val categoriesState = viewModel.categories.collectAsState()
-    
-    val recipes = recipesState.value
-    val categories = categoriesState.value
-
-    if (selectedCategoryState.value == null) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Categories", 
-                    style = MaterialTheme.typography.headlineMedium, 
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                IconButton(
-                    onClick = { showAddCategoryDialogState.value = true },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Category", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
-
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(categories) { category ->
-                    val recipesInCategory = recipes.filter { it.category == category.name }
-                    CategoryItem(
-                        category = category.name,
-                        onClick = { selectedCategoryState.value = category.name },
-                        onEdit = {
-                            categoryToEdit.value = category
-                            showEditCategoryDialogState.value = true
-                        },
-                        onDelete = {
-                            if (recipesInCategory.isNotEmpty()) {
-                                categoryToDelete.value = category
-                                showDeleteConfirmationDialog.value = true
-                            } else {
-                                viewModel.deleteCategory(category)
-                            }
-                        }
-                    )
-                }
-            }
-        }
-    } else {
-        val selectedRecipeForDetailState = remember { mutableStateOf<Recipe?>(null) }
-        val recipeToEditState = remember { mutableStateOf<Recipe?>(null) }
-        val recipeToDeleteState = remember { mutableStateOf<Recipe?>(null) }
-
-        CategoryDetailScreen(
-            categoryName = selectedCategoryState.value!!,
-            recipes = recipes.filter { it.category == selectedCategoryState.value },
-            onBack = { selectedCategoryState.value = null },
-            onDeleteRecipe = { recipe -> recipeToDeleteState.value = recipe },
-            onRecipeClick = { recipe -> selectedRecipeForDetailState.value = recipe }
-        )
-
-        recipeToDeleteState.value?.let { recipe ->
-            DeleteRecipeConfirmationDialog(
-                recipeName = recipe.title,
-                onConfirm = {
-                    viewModel.deleteRecipe(recipe)
-                    recipeToDeleteState.value = null
-                },
-                onDismiss = { recipeToDeleteState.value = null }
-            )
-        }
-
-        selectedRecipeForDetailState.value?.let { recipe ->
-            RecipeDetailDialog(
-                recipe = recipe,
-                onDismiss = { selectedRecipeForDetailState.value = null },
-                onToggleFavorite = { viewModel.toggleFavorite(recipe) },
-                onEdit = {
-                    recipeToEditState.value = recipe
-                    selectedRecipeForDetailState.value = null
-                },
-                onSave = {
-                    recipeToSaveState.value = recipe
-                    selectedRecipeForDetailState.value = null
-                }
-            )
-        }
-
-        recipeToSaveState.value?.let { recipe ->
-            SaveRecipeWithCategoryDialog(
-                categories = categoriesState.value,
-                onDismiss = { recipeToSaveState.value = null },
-                onSave = { category ->
-                    viewModel.savePublicRecipe(recipe, category)
-                    recipeToSaveState.value = null
-                    Toast.makeText(context, "Recipe saved to $category!", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        recipeToEditState.value?.let { recipe ->
-            EditRecipeDialog(
-                recipe = recipe,
-                viewModel = viewModel,
-                onDismiss = { recipeToEditState.value = null },
-                onRecipeUpdated = { updatedRecipe ->
-                    viewModel.updateRecipe(updatedRecipe)
-                    recipeToEditState.value = null
-                }
-            )
-        }
-    }
-
-    if (showAddCategoryDialogState.value) {
-        AddCategoryDialog(
-            onDismiss = { showAddCategoryDialogState.value = false },
-            onCategoryAdded = { name ->
-                viewModel.addCategory(name, owner)
-                showAddCategoryDialogState.value = false
-            }
-        )
-    }
-
-    if (showEditCategoryDialogState.value) {
-        categoryToEdit.value?.let { category ->
-            EditCategoryDialog(
-                category = category,
-                onDismiss = { showEditCategoryDialogState.value = false },
-                onCategoryUpdated = { newName ->
-                    viewModel.updateCategory(category.name, category.copy(name = newName, isSynced = false))
-                    showEditCategoryDialogState.value = false
-                }
-            )
-        }
-    }
-
-    if (showDeleteConfirmationDialog.value) {
-        categoryToDelete.value?.let { category ->
-            DeleteCategoryConfirmationDialog(
-                categoryName = category.name,
-                onConfirm = {
-                    viewModel.deleteCategory(category, deleteRecipes = true)
-                    showDeleteConfirmationDialog.value = false
-                },
-                onDismiss = {
-                    showDeleteConfirmationDialog.value = false
-                }
-            )
-        }
-    }
-}
-
-@Composable
-fun DeleteCategoryConfirmationDialog(
-    categoryName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Delete Category") },
-        text = { 
-            Text("This category contains recipes. If you delete it, all recipes in this category ($categoryName) will also be deleted. Are you sure permanently delete the data?")
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Delete Everything")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@Composable
-fun DeleteRecipeConfirmationDialog(
-    recipeName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Delete Recipe") },
-        text = { 
-            Text("Are you sure you want to delete recipe'$recipeName'? This action will permanently delete the recipe.")
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Delete")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@Composable
-fun CategoryItem(category: String, onClick: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(20.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Folder, 
-                    contentDescription = null, 
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-            Spacer(Modifier.width(16.dp))
-            Text(
-                text = category,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(
-                onClick = onEdit,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit Category")
-            }
-            IconButton(
-                onClick = onDelete,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Category")
-            }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-fun CategoryDetailScreen(categoryName: String, recipes: List<Recipe>, onBack: () -> Unit, onDeleteRecipe: (Recipe) -> Unit, onRecipeClick: (Recipe) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text(text = categoryName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
-
-        if (recipes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No recipes in this category yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(recipes) { recipe ->
-                    RecipeItemRow(recipe = recipe, onDelete = { onDeleteRecipe(recipe) }, onClick = { onRecipeClick(recipe) })
-                }
-            }
-        }
-    }
+    selectedRecipeState.value?.let { r -> RecipeDetailDialog(r, viewModel, { selectedRecipeState.value = null }, { viewModel.toggleFavorite(r) }, { /* restricted */ }, { recipeToSaveState.value = r; selectedRecipeState.value = null }, { onScheduleRecipe(r); selectedRecipeState.value = null }) }
+    recipeToSaveState.value?.let { r -> SaveRecipeWithCategoryDialog(viewModel.categories.value, { recipeToSaveState.value = null }, { cat -> viewModel.savePublicRecipe(r, cat); recipeToSaveState.value = null; Toast.makeText(context, "Saved to $cat!", Toast.LENGTH_SHORT).show() }) }
 }
 
 @Composable
 fun RecipeItemRow(recipe: Recipe, onDelete: (() -> Unit)?, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(12.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-                if (recipe.imageUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(recipe.imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(90.dp)
-                            .clip(RoundedCornerShape(16.dp)),
-                        contentScale = ContentScale.Crop,
-                        placeholder = painterResource(R.drawable.chefmate_logo),
-                        error = painterResource(R.drawable.chefmate_logo)
-                    )
-                } else {
-                Box(
-                    modifier = Modifier
-                        .size(90.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Restaurant, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
+        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.size(90.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo))
+            else Box(modifier = Modifier.size(90.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f)) }
+            Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp)); Text(" ${recipe.rating}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold); Spacer(Modifier.width(12.dp)); recipe.category?.let { Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(0.5f)) { Text(it, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
+            if (onDelete != null) IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.7f)) }
+            else Icon(Icons.Default.Public, null, tint = MaterialTheme.colorScheme.primary.copy(0.4f), modifier = Modifier.padding(8.dp).size(20.dp))
+        }
+    }
+}
+
+@Composable
+fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(onClick = onClick, modifier = modifier.width(220.dp).height(300.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
+                if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo))
+                else Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Default.Restaurant, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.5f), modifier = Modifier.size(48.dp)) }
+                Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(0.9f)) { Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)); Text(recipe.rating.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) } }
+            }
+            Column(modifier = Modifier.padding(16.dp)) { Text(recipe.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(recipe.description ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, modifier = Modifier.padding(top = 4.dp)); Spacer(Modifier.weight(1f)); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { recipe.tags?.take(2)?.forEach { tag -> Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(0.4f)) { Text(tag, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) } } } }
+        }
+    }
+}
+
+@Composable
+fun MyRecipesTab(viewModel: RecipeViewModel, owner: String, onCategorySelected: (String?) -> Unit = {}, onScheduleRecipe: (Recipe) -> Unit) {
+    val context = LocalContext.current
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedCategory) { onCategorySelected(selectedCategory) }
+    var showAddCat by remember { mutableStateOf(false) }
+    var showEditCat by remember { mutableStateOf(false) }
+    var showDelCat by remember { mutableStateOf(false) }
+    var catToEdit by remember { mutableStateOf<Category?>(null) }
+    var catToDel by remember { mutableStateOf<Category?>(null) }
+    val recipes by viewModel.recipes.collectAsState()
+    val categories by viewModel.categories.collectAsState()
+
+    if (selectedCategory == null) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Categories", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); IconButton(onClick = { showAddCat = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Icon(Icons.Default.CreateNewFolder, null) } }
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(categories) { cat ->
+                    CategoryItem(cat.name, { selectedCategory = cat.name }, { catToEdit = cat; showEditCat = true }, { if (recipes.any { it.category == cat.name }) { catToDel = cat; showDelCat = true } else viewModel.deleteCategory(cat) })
                 }
             }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = recipe.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = recipe.description ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = null,
-                        tint = Color(0xFFFFC107),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = " ${recipe.rating}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    recipe.category?.let {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                text = it,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                }
-            }
-            
-            if (onDelete != null) {
-                IconButton(
-                    onClick = onDelete,
-                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Recipe")
-                }
-            } else {
-                // If no delete, show a "Save" or "Public" indicator
-                Icon(
-                    Icons.Default.Public, 
-                    contentDescription = "Online", 
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                    modifier = Modifier.padding(8.dp).size(20.dp)
-                )
+        }
+    } else {
+        var selRec by remember { mutableStateOf<Recipe?>(null) }
+        var recToEdit by remember { mutableStateOf<Recipe?>(null) }
+        var recToDel by remember { mutableStateOf<Recipe?>(null) }
+        CategoryDetailScreen(selectedCategory!!, recipes.filter { it.category == selectedCategory }, { selectedCategory = null }, { recToDel = it }, { selRec = it })
+        recToDel?.let { r -> DeleteRecipeConfirmationDialog(r.title, { viewModel.deleteRecipe(r); recToDel = null }, { recToDel = null }) }
+        selRec?.let { r -> RecipeDetailDialog(r, viewModel, { selRec = null }, { viewModel.toggleFavorite(r) }, { recToEdit = r; selRec = null }, null, { onScheduleRecipe(r); selRec = null }, null) }
+        recToEdit?.let { r -> EditRecipeDialog(r, viewModel, { recToEdit = null }, { updated -> viewModel.updateRecipe(updated); recToEdit = null }) }
+    }
+    if (showAddCat) AddCategoryDialog({ showAddCat = false }, { viewModel.addCategory(it, owner); showAddCat = false })
+    if (showEditCat && catToEdit != null) EditCategoryDialog(catToEdit!!, { showEditCat = false }, { viewModel.updateCategory(catToEdit!!.name, catToEdit!!.copy(name = it, isSynced = false)); showEditCat = false })
+    if (showDelCat && catToDel != null) DeleteCategoryConfirmationDialog(catToDel!!.name, { viewModel.deleteCategory(catToDel!!, true); showDelCat = false }, { showDelCat = false })
+}
+
+@Composable
+fun CategoryItem(name: String, onClick: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
+        Row(modifier = Modifier.padding(20.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            Spacer(Modifier.width(16.dp)); Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary.copy(0.8f)) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.6f)) }
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun CategoryDetailScreen(name: String, recipes: List<Recipe>, onBack: () -> Unit, onDeleteRecipe: (Recipe) -> Unit, onRecipeClick: (Recipe) -> Unit) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }; Text(name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
+        if (recipes.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No recipes here yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        else LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { items(recipes) { r -> RecipeItemRow(r, { onDeleteRecipe(r) }, { onRecipeClick(r) }) } }
+    }
+}
+
+@Composable
+fun PlannerScreen(viewModel: RecipeViewModel) {
+    var subTab by remember { mutableIntStateOf(0) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = subTab, containerColor = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.primary, indicator = { TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(it[subTab]), color = MaterialTheme.colorScheme.primary) }) {
+            Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("Shopping List") })
+            Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("Meal Plan") })
+        }
+        if (subTab == 0) ShoppingListScreen(viewModel) else MealPlanScreen(viewModel)
+    }
+}
+
+@Composable
+fun MealPlanScreen(viewModel: RecipeViewModel) {
+    val plans by viewModel.mealPlans.collectAsState()
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) { Text("Weekly Schedule", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f)) }
+        if (plans.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your planner is empty.", Icons.Default.EventNote) }
+        else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            plans.groupBy { val c = Calendar.getInstance(); c.timeInMillis = it.date; "${c.get(Calendar.DAY_OF_MONTH)}/${c.get(Calendar.MONTH) + 1}" }.forEach { (d, p) ->
+                item { Text(d, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                items(p) { plan -> MealPlanRow(plan, { viewModel.deleteMealPlan(plan) }) }
             }
         }
     }
 }
 
 @Composable
-fun EditCategoryDialog(category: Category, onDismiss: () -> Unit, onCategoryUpdated: (String) -> Unit) {
-    val categoryNameState = remember { mutableStateOf(category.name) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("Edit Category", fontWeight = FontWeight.Bold) },
-        text = {
-            OutlinedTextField(
-                value = categoryNameState.value,
-                onValueChange = { categoryNameState.value = it },
-                label = { Text("Category Name") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (categoryNameState.value.isNotBlank()) onCategoryUpdated(categoryNameState.value) },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(0.5f)) { Text(plan.mealType.take(1), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) { Text(plan.recipeTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(plan.mealType, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.6f)) }
+        }
+    }
+}
+
+@Composable
+fun ShoppingListScreen(viewModel: RecipeViewModel) {
+    val items by viewModel.shoppingList.collectAsState()
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Shopping List", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); IconButton(onClick = { viewModel.clearCheckedShoppingItems() }) { Icon(Icons.Default.DeleteSweep, null, tint = MaterialTheme.colorScheme.error) } }
+        if (items.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Your list is empty.", Icons.Default.ShoppingCartCheckout) }
+        else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items.groupBy { it.category }.forEach { (cat, itms) ->
+                item { Text(cat, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                items(itms) { i -> ShoppingItemRow(i, { viewModel.toggleShoppingItem(i) }, { viewModel.deleteShoppingItem(i) }) }
             }
         }
-    )
+    }
+}
+
+@Composable
+fun ShoppingItemRow(item: ShoppingItem, onToggle: () -> Unit, onDelete: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (item.isChecked) MaterialTheme.colorScheme.surfaceVariant.copy(0.5f) else MaterialTheme.colorScheme.surface)) {
+        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(item.isChecked, { onToggle() }); Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) { Text(item.name, style = MaterialTheme.typography.bodyLarge, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, color = if (item.isChecked) MaterialTheme.colorScheme.onSurface.copy(0.5f) else MaterialTheme.colorScheme.onSurface); if (item.quantity.isNotBlank()) Text(item.quantity, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Close, null, modifier = Modifier.size(20.dp), tint = Color.Gray) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CookingModeDialog(recipe: Recipe, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var step by remember { mutableIntStateOf(0) }
+    val steps = recipe.instructions ?: emptyList()
+    var timer by remember { mutableIntStateOf(0) }
+    var running by remember { mutableStateOf(false) }
+
+    // Keep screen on during cooking
+    DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    LaunchedEffect(running, timer) {
+        if (running && timer > 0) {
+            kotlinx.coroutines.delay(1000)
+            timer -= 1
+            if (timer == 0) running = false
+        }
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Step ${step + 1} of ${steps.size}", color = MaterialTheme.colorScheme.primary); IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) } }
+                LinearProgressIndicator(progress = { (step + 1).toFloat() / steps.size.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).height(8.dp).clip(CircleShape))
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(if (steps.isNotEmpty()) steps[step] else "None", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center) }
+                if (steps.isNotEmpty() && (steps[step].contains("min"))) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.secondaryContainer)) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Timer, null)
+                            Spacer(Modifier.width(12.dp))
+                            val minutes = timer / 60
+                            val seconds = timer % 60
+                            Text(
+                                text = if (timer > 0) "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}" else "Start Timer",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (timer == 0) Button(onClick = { timer = 600; running = true }) { Text("10 Min") } 
+                            else IconButton(onClick = { running = !running }) { Icon(if (running) Icons.Default.Pause else Icons.Default.PlayArrow, null) } 
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedButton(onClick = { step -= 1 }, enabled = step > 0, modifier = Modifier.weight(1f)) { Text("PREVIOUS") }
+                    Button(onClick = { if (step < steps.size - 1) step += 1 else onDismiss() }, modifier = Modifier.weight(1f)) { Text(if (step < steps.size - 1) "NEXT" else "FINISH") }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScheduleMealDialog(onDismiss: () -> Unit, onSchedule: (Long, String) -> Unit) {
+    var date by remember { mutableStateOf(System.currentTimeMillis()) }
+    var type by remember { mutableStateOf("Lunch") }
+    var showPicker by remember { mutableStateOf(false) }
+    val pickerState = rememberDatePickerState(date)
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Schedule") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) { Row(modifier = Modifier.padding(16.dp)) { Icon(Icons.Default.CalendarToday, null); Spacer(Modifier.width(12.dp)); val c = Calendar.getInstance(); c.timeInMillis = date; Text("${c.get(Calendar.DAY_OF_MONTH)}/${c.get(Calendar.MONTH) + 1}") } }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("Breakfast", "Lunch", "Dinner").forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t) }, modifier = Modifier.weight(1f)) } }
+        }
+    }, confirmButton = { Button(onClick = { onSchedule(date, type) }) { Text("Schedule") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    if (showPicker) DatePickerDialog(onDismissRequest = { showPicker = false }, confirmButton = { TextButton(onClick = { date = pickerState.selectedDateMillis ?: date; showPicker = false }) { Text("OK") } }) { DatePicker(pickerState) }
 }
 
 @Composable
 fun AddCategoryDialog(onDismiss: () -> Unit, onCategoryAdded: (String) -> Unit) {
-    val categoryNameState = remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("New Category", fontWeight = FontWeight.Bold) },
-        text = {
-            OutlinedTextField(
-                value = categoryNameState.value,
-                onValueChange = { categoryNameState.value = it },
-                label = { Text("Category Name") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (categoryNameState.value.isNotBlank()) onCategoryAdded(categoryNameState.value) },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Create")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    val name = remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("New Category") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onCategoryAdded(name.value) }) { Text("Create") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
+@Composable
+fun EditCategoryDialog(cat: Category, onDismiss: () -> Unit, onUpdate: (String) -> Unit) {
+    val name = remember { mutableStateOf(cat.name) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Edit") }, text = { OutlinedTextField(value = name.value, onValueChange = { name.value = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.value.isNotBlank()) onUpdate(name.value) }) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchBar(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    val isDarkMode = MaterialTheme.colorScheme.surface == ChefSecondary 
-
-    TextField(
-        value = query,
-        onValueChange = onQueryChange,
-        placeholder = { Text("Search your recipes...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
-        leadingIcon = {
-            Icon(
-                Icons.Default.Search, 
-                contentDescription = null, 
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 8.dp)
-            )
-        },
-        modifier = modifier
-            .height(56.dp)
-            .border(
-                width = if (isDarkMode) 1.dp else 0.dp,
-                color = if (isDarkMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
-                shape = CircleShape
-            )
-            .clip(CircleShape),
-        colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedTextColor = MaterialTheme.colorScheme.onSurface
-        ),
-        singleLine = true,
-        shape = CircleShape
-    )
+    val isDark = MaterialTheme.colorScheme.surface == ChefSecondary
+    TextField(value = query, onValueChange = onQueryChange, placeholder = { Text("Search...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f)) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp)) }, modifier = modifier.height(56.dp).border(if (isDark) 1.dp else 0.dp, if (isDark) MaterialTheme.colorScheme.primary.copy(0.4f) else Color.Transparent, CircleShape).clip(CircleShape), colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface), singleLine = true, shape = CircleShape)
 }
 
 @Composable
-fun RecipeCard(recipe: Recipe, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Card(
-        onClick = onClick,
-        modifier = modifier
-            .width(220.dp)
-            .height(300.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
-                if (recipe.imageUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(recipe.imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
-                        contentScale = ContentScale.Crop,
-                        placeholder = painterResource(R.drawable.chefmate_logo),
-                        error = painterResource(R.drawable.chefmate_logo)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Restaurant,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                    }
-                }
-                
-                // Floating Rating Badge
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                    tonalElevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Star,
-                            contentDescription = null,
-                            tint = Color(0xFFFFC107),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = recipe.rating.toString(),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = recipe.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = recipe.description ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                
-                Spacer(modifier = Modifier.weight(1f))
-                
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    recipe.tags?.take(2)?.forEach { tag ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                        ) {
-                            Text(
-                                text = tag,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+fun DeleteCategoryConfirmationDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Category") }, text = { Text("Delete '$name' and all its recipes?") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
+@Composable
+fun DeleteRecipeConfirmationDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete Recipe") }, text = { Text("Delete '$name'?") }, confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)) { Text("Delete") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SaveRecipeWithCategoryDialog(
-    categories: List<Category>,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit
-) {
+fun SaveRecipeWithCategoryDialog(categories: List<Category>, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var selectedCategory by remember { mutableStateOf(categories.firstOrNull()?.name ?: "General") }
     var expanded by remember { mutableStateOf(false) }
 
@@ -1517,746 +577,48 @@ fun SaveRecipeWithCategoryDialog(
 }
 
 @Composable
-fun RecipeDetailDialog(
-    recipe: Recipe, 
-    onDismiss: () -> Unit, 
-    onToggleFavorite: () -> Unit, 
-    onEdit: () -> Unit,
-    onSave: (() -> Unit)? = null
-) {
-    val isFavoriteState = remember { mutableStateOf(recipe.isFavorite) }
-    val isPublic = recipe.owner == "Public"
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier.fillMaxWidth(0.92f),
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = recipe.title, 
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold, 
-                    modifier = Modifier.weight(1f)
-                )
-                Row {
-                    if (isPublic && onSave != null) {
-                        IconButton(onClick = onSave) {
-                            Icon(
-                                imageVector = Icons.Default.BookmarkAdd, 
-                                contentDescription = "Save to My Recipes", 
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else if (!isPublic) {
-                        IconButton(onClick = onEdit) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit Recipe", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                    
-                    if (!isPublic) {
-                        IconButton(onClick = {
-                            isFavoriteState.value = !isFavoriteState.value
-                            onToggleFavorite()
-                        }) {
-                            Icon(
-                                imageVector = if (isFavoriteState.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = "Favorite",
-                                tint = if (isFavoriteState.value) Color.Red else Color.Gray
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                if (recipe.imageUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(recipe.imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(240.dp)
-                            .clip(RoundedCornerShape(20.dp)),
-                        contentScale = ContentScale.Crop,
-                        placeholder = painterResource(R.drawable.chefmate_logo),
-                        error = painterResource(R.drawable.chefmate_logo)
-                    )
-                }
-
-                if (recipe.videoUri != null) {
-                    val isWebLink = recipe.videoUri.toString().startsWith("http")
-                    if (isWebLink) {
-                        val context = LocalContext.current
-                        Button(
-                            onClick = { 
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.videoUri)
-                                context.startActivity(intent)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000)), // YouTube Red
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.PlayCircle, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Watch Video Link")
-                        }
-                    } else {
-                        VideoPlayer(videoUri = recipe.videoUri)
-                    }
-                }
-
-                recipe.description?.let {
-                    Text(
-                        text = it, 
-                        style = MaterialTheme.typography.bodyLarge,
-                        lineHeight = 24.sp
-                    )
-                }
-
-                recipe.ingredients?.let { ingredientsList ->
-                    if (ingredientsList.isNotEmpty()) {
-                        Column {
-                            Text(
-                                text = "Ingredients", 
-                                style = MaterialTheme.typography.titleMedium, 
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            ingredientsList.forEach { ingredient ->
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Box(modifier = Modifier.size(6.dp).background(MaterialTheme.colorScheme.secondary, CircleShape))
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(text = ingredient, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                recipe.instructions?.let { instructionsList ->
-                    if (instructionsList.isNotEmpty()) {
-                        Column {
-                            Text(
-                                text = "Instructions", 
-                                style = MaterialTheme.typography.titleMedium, 
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            instructionsList.forEachIndexed { index, step ->
-                                Row(modifier = Modifier.padding(vertical = 6.dp)) {
-                                    Text(
-                                        text = "${index + 1}", 
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.secondary,
-                                        modifier = Modifier
-                                            .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
-                                            .size(24.dp)
-                                            .wrapContentSize(Alignment.Center)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(text = step, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Close")
-            }
+fun RecipeDetailDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -> Unit, onFav: () -> Unit, onEdit: () -> Unit, onSave: (() -> Unit)? = null, onSchedule: (() -> Unit)? = null, onStartCooking: (() -> Unit)? = null) {
+    val context = LocalContext.current
+    val fav = remember { mutableStateOf(recipe.isFavorite) }
+    val isPub = recipe.owner == "Public"
+    AlertDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false), modifier = Modifier.fillMaxWidth(0.92f), title = { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(recipe.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f)); Row { if (isPub && onSave != null) IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, null, tint = MaterialTheme.colorScheme.primary) } else if (!isPub) { IconButton(onClick = { viewModel.togglePublish(recipe) }) { Icon(if (recipe.isPublic) Icons.Default.Public else Icons.Default.PublicOff, null, tint = if (recipe.isPublic) MaterialTheme.colorScheme.primary else Color.Gray) }; IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) } }; if (!isPub) IconButton(onClick = { fav.value = !fav.value; onFav() }) { Icon(if (fav.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (fav.value) Color.Red else Color.Gray) }; IconButton(onClick = { onSchedule?.invoke() }) { Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary) } } } }, text = {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo))
+            Button(onClick = { onStartCooking?.invoke() }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Restaurant, null); Spacer(Modifier.width(12.dp)); Text("START COOKING", fontWeight = FontWeight.ExtraBold) }
+            if (recipe.videoUri != null) { if (recipe.videoUri.toString().startsWith("http")) Button(onClick = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.videoUri)) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(Color.Red)) { Icon(Icons.Default.PlayCircle, null); Text("Watch Video") } else VideoPlayer(recipe.videoUri) }
+            recipe.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+            recipe.ingredients?.let { list -> Column { Text("Ingredients", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEach { i -> Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(6.dp).background(MaterialTheme.colorScheme.secondary, CircleShape)); Spacer(Modifier.width(12.dp)); Text(i, Modifier.weight(1f)); IconButton({ viewModel.addIngredientsToShoppingList(Recipe(title="", ingredients=listOf(i), owner=recipe.owner)); Toast.makeText(context, "Added", Toast.LENGTH_SHORT).show() }, Modifier.size(24.dp)) { Icon(Icons.Default.AddShoppingCart, null, Modifier.size(16.dp), MaterialTheme.colorScheme.primary) } } } } }
+            recipe.instructions?.let { list -> Column { Text("Instructions", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEachIndexed { idx, s -> Row(Modifier.padding(vertical = 6.dp)) { Text("${idx + 1}", Modifier.background(MaterialTheme.colorScheme.secondaryContainer, CircleShape).size(24.dp).wrapContentSize(Alignment.Center)); Spacer(Modifier.width(12.dp)); Text(s) } } } }
         }
-    )
+    }, confirmButton = { Button(onClick = onDismiss) { Text("Close") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -> Unit, onRecipeUpdated: (Recipe) -> Unit) {
-    val titleState = remember { mutableStateOf(recipe.title) }
-    val descriptionState = remember { mutableStateOf(recipe.description ?: "") }
-    val ingredientsState = remember { mutableStateOf(recipe.ingredients?.joinToString("\n") ?: "") }
-    val instructionsState = remember { mutableStateOf(recipe.instructions?.joinToString("\n") ?: "") }
-    val ratingState = remember { mutableStateOf(recipe.rating?.toString() ?: "0.0") }
-    val tagsState = remember { mutableStateOf(recipe.tags?.joinToString(", ") ?: "") }
-    val selectedCategoryState = remember { mutableStateOf(recipe.category ?: "General") }
-    val imageUriState = remember { mutableStateOf<Uri?>(recipe.imageUri) }
-    val videoUriState = remember { mutableStateOf<Uri?>(recipe.videoUri) }
-    val videoLinkState = remember { mutableStateOf(if (recipe.videoUri?.toString()?.startsWith("http") == true) recipe.videoUri.toString() else "") }
-    val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
-    val currentTempVideoUriState = remember { mutableStateOf<Uri?>(null) }
-    val expandedState = remember { mutableStateOf(false) }
-    val categoriesState = viewModel.categories.collectAsState()
-    val categories = categoriesState.value
-
-    LaunchedEffect(categories) {
-        if (selectedCategoryState.value.isBlank() && categories.isNotEmpty()) {
-            selectedCategoryState.value = categories.firstOrNull()?.name ?: "General"
+fun EditRecipeDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: () -> Unit, onUpdate: (Recipe) -> Unit) {
+    val title = remember { mutableStateOf(recipe.title) }; val desc = remember { mutableStateOf(recipe.description ?: "") }; val ing = remember { mutableStateOf(recipe.ingredients?.joinToString("\n") ?: "") }; val ins = remember { mutableStateOf(recipe.instructions?.joinToString("\n") ?: "") }; val rat = remember { mutableStateOf(recipe.rating?.toString() ?: "0.0") }; val tags = remember { mutableStateOf(recipe.tags?.joinToString(", ") ?: "") }; val cat = remember { mutableStateOf(recipe.category ?: "General") }; val img = remember { mutableStateOf(recipe.imageUri) }; val vid = remember { mutableStateOf(recipe.videoUri) }; val vidL = remember { mutableStateOf(if (recipe.videoUri?.toString()?.startsWith("http") == true) recipe.videoUri.toString() else "") }; val exp = remember { mutableStateOf(false) }; val categories by viewModel.categories.collectAsState(); val context = LocalContext.current; val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) img.value = it }; val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { /* logic */ }; val scroll = rememberScrollState()
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Edit") }, text = {
+        Column(Modifier.verticalScroll(scroll).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(title.value, { title.value = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth()); ExposedDropdownMenuBox(exp.value, { exp.value = !exp.value }) { OutlinedTextField(cat.value, {}, label = { Text("Category") }, readOnly = true, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp.value) }, modifier = Modifier.menuAnchor().fillMaxWidth()); ExposedDropdownMenu(exp.value, { exp.value = false }) { categories.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { cat.value = c.name; exp.value = false }) } } }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button({ gallery.launch("image/*") }, Modifier.weight(1f)) { Text("Gallery") }; Button({ /* camera */ }, Modifier.weight(1f)) { Text("Camera") } }
+            if (img.value != null) Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp))) { AsyncImage(img.value, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); IconButton({ img.value = null }, Modifier.align(Alignment.TopEnd)) { Icon(Icons.Default.Close, null, tint = Color.White) } }
+            OutlinedTextField(vidL.value, { vidL.value = it; if (it.isNotBlank()) vid.value = null }, label = { Text("Video Link") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc.value, { desc.value = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(ing.value, { ing.value = it }, label = { Text("Ingredients") }, modifier = Modifier.fillMaxWidth(), minLines = 3); OutlinedTextField(ins.value, { ins.value = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) { OutlinedTextField(rat.value, { rat.value = it }, label = { Text("Rating") }, modifier = Modifier.weight(1f)); OutlinedTextField(tags.value, { tags.value = it }, label = { Text("Tags") }, modifier = Modifier.weight(2f)) }
         }
-    }
-
-    val context = LocalContext.current
-
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) imageUriState.value = uri
-    }
-
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success) imageUriState.value = currentTempUriState.value
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Toast.makeText(context, "Camera permission granted.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val videoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            videoUriState.value = uri
-            videoLinkState.value = "" // Clear link if file selected
-        }
-    }
-
-    val scrollState = rememberScrollState()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("Edit Recipe", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(scrollState)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = titleState.value,
-                    onValueChange = { titleState.value = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                
-                ExposedDropdownMenuBox(
-                    expanded = expandedState.value,
-                    onExpandedChange = { expandedState.value = !expandedState.value }
-                ) {
-                    OutlinedTextField(
-                        value = selectedCategoryState.value,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Category") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedState.value) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expandedState.value,
-                        onDismissRequest = { expandedState.value = false }
-                    ) {
-                        categories.forEach { category ->
-                            DropdownMenuItem(
-                                text = { Text(category.name) },
-                                onClick = {
-                                    selectedCategoryState.value = category.name
-                                    expandedState.value = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Text("Media", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { galleryLauncher.launch("image/*") },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Img Gallery", fontSize = 10.sp)
-                    }
-                    Button(
-                        onClick = { 
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                try {
-                                    val directory = File(context.filesDir, "images")
-                                    if (!directory.exists()) directory.mkdirs()
-                                    val file = File(directory, "temp_camera_${System.currentTimeMillis()}.jpg")
-                                    val uri = FileProvider.getUriForFile(context, "com.example.myrecipe.fileprovider", file)
-                                    currentTempUriState.value = uri
-                                    cameraLauncher.launch(uri)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Img Camera", fontSize = 10.sp)
-                    }
-                }
-
-                Button(
-                    onClick = { videoLauncher.launch("video/*") },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                ) {
-                    Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Select Video File")
-                }
-
-                // Image Preview (Modern Addition)
-                if (imageUriState.value != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imageUriState.value)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Selected Image",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        // Small overlay to indicate it's a preview
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.5f)
-                        ) {
-                            IconButton(
-                                onClick = { imageUriState.value = null },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = videoLinkState.value,
-                    onValueChange = { 
-                        videoLinkState.value = it
-                        if (it.isNotBlank()) videoUriState.value = null // Clear file if link entered
-                    },
-                    label = { Text("Or Paste Video Link (YouTube/Web)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    placeholder = { Text("https://...") }
-                )
-
-                if (imageUriState.value != null || videoUriState.value != null || videoLinkState.value.isNotBlank()) {
-                    Text("Preview Attached", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                }
-
-                OutlinedTextField(
-                    value = descriptionState.value,
-                    onValueChange = { descriptionState.value = it },
-                    label = { Text("Description") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = ingredientsState.value,
-                    onValueChange = { ingredientsState.value = it },
-                    label = { Text("Ingredients (one per line)") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = instructionsState.value,
-                    onValueChange = { instructionsState.value = it },
-                    label = { Text("Cooking Steps (one per line)") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = ratingState.value,
-                        onValueChange = { ratingState.value = it },
-                        label = { Text("Rating") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                    )
-                    OutlinedTextField(
-                        value = tagsState.value,
-                        onValueChange = { tagsState.value = it },
-                        label = { Text("Tags") },
-                        modifier = Modifier.weight(2f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (titleState.value.isNotBlank()) {
-                        val finalVideoUri = if (videoLinkState.value.isNotBlank()) Uri.parse(videoLinkState.value) else videoUriState.value
-                        onRecipeUpdated(
-                            recipe.copy(
-                                title = titleState.value,
-                                description = descriptionState.value,
-                                ingredients = ingredientsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
-                                instructions = instructionsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
-                                imageUri = imageUriState.value,
-                                videoUri = finalVideoUri,
-                                rating = ratingState.value.toDoubleOrNull() ?: 0.0,
-                                tags = tagsState.value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { if (it.startsWith("#")) it else "#$it" },
-                                category = selectedCategoryState.value
-                            )
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Save Changes")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    }, confirmButton = { Button({ if (title.value.isNotBlank()) onUpdate(recipe.copy(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) Uri.parse(vidL.value) else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Save") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddRecipeDialog(viewModel: RecipeViewModel, initialCategory: String? = null, onDismiss: () -> Unit, onRecipeAdded: (Recipe) -> Unit) {
-    val titleState = remember { mutableStateOf("") }
-    val descriptionState = remember { mutableStateOf("") }
-    val ingredientsState = remember { mutableStateOf("") }
-    val instructionsState = remember { mutableStateOf("") }
-    val ratingState = remember { mutableStateOf("4.5") }
-    val tagsState = remember { mutableStateOf("") }
-    val categoriesState = viewModel.categories.collectAsState()
-    val categories = categoriesState.value
-    val selectedCategoryState = remember { mutableStateOf(initialCategory ?: "General") }
-    val imageUriState = remember { mutableStateOf<Uri?>(null) }
-    val videoUriState = remember { mutableStateOf<Uri?>(null) }
-    val videoLinkState = remember { mutableStateOf("") }
-    val currentTempUriState = remember { mutableStateOf<Uri?>(null) }
-    val expandedState = remember { mutableStateOf(false) }
-
-    LaunchedEffect(categories, initialCategory) {
-        if (initialCategory != null) {
-            selectedCategoryState.value = initialCategory
-        } else if (selectedCategoryState.value == "General" && categories.isNotEmpty()) {
-            selectedCategoryState.value = categories.first().name
+    val title = remember { mutableStateOf("") }; val desc = remember { mutableStateOf("") }; val ing = remember { mutableStateOf("") }; val ins = remember { mutableStateOf("") }; val rat = remember { mutableStateOf("4.5") }; val tags = remember { mutableStateOf("") }; val cat = remember { mutableStateOf(initialCategory ?: "General") }; val img = remember { mutableStateOf<Uri?>(null) }; val vid = remember { mutableStateOf<Uri?>(null) }; val vidL = remember { mutableStateOf("") }; val exp = remember { mutableStateOf(false) }; val categories by viewModel.categories.collectAsState(); val context = LocalContext.current; val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { if (it != null) img.value = it }; val scroll = rememberScrollState()
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("New Recipe") }, text = {
+        Column(Modifier.verticalScroll(scroll).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(title.value, { title.value = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth()); ExposedDropdownMenuBox(exp.value, { exp.value = !exp.value }) { OutlinedTextField(cat.value, {}, label = { Text("Category") }, readOnly = true, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp.value) }, modifier = Modifier.menuAnchor().fillMaxWidth()); ExposedDropdownMenu(exp.value, { exp.value = false }) { categories.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { cat.value = c.name; exp.value = false }) } } }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button({ gallery.launch("image/*") }, Modifier.weight(1f)) { Text("Gallery") }; Button({ /* camera */ }, Modifier.weight(1f)) { Text("Camera") } }
+            if (img.value != null) Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp))) { AsyncImage(img.value, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); IconButton({ img.value = null }, Modifier.align(Alignment.TopEnd)) { Icon(Icons.Default.Close, null, tint = Color.White) } }
+            OutlinedTextField(vidL.value, { vidL.value = it; if (it.isNotBlank()) vid.value = null }, label = { Text("Video Link") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc.value, { desc.value = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(ing.value, { ing.value = it }, label = { Text("Ingredients") }, modifier = Modifier.fillMaxWidth(), minLines = 3); OutlinedTextField(ins.value, { ins.value = it }, label = { Text("Steps") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) { OutlinedTextField(rat.value, { rat.value = it }, label = { Text("Rating") }, modifier = Modifier.weight(1f)); OutlinedTextField(tags.value, { tags.value = it }, label = { Text("Tags") }, modifier = Modifier.weight(2f)) }
         }
-    }
-
-    val context = LocalContext.current
-
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) imageUriState.value = uri
-    }
-
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success) imageUriState.value = currentTempUriState.value
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Toast.makeText(context, "Camera permission granted.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val videoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            videoUriState.value = uri
-            videoLinkState.value = ""
-        }
-    }
-
-    val scrollState = rememberScrollState()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("Add New Recipe", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(scrollState)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = titleState.value,
-                    onValueChange = { titleState.value = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                
-                ExposedDropdownMenuBox(
-                    expanded = expandedState.value,
-                    onExpandedChange = { expandedState.value = !expandedState.value }
-                ) {
-                    OutlinedTextField(
-                        value = selectedCategoryState.value,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Category") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedState.value) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expandedState.value,
-                        onDismissRequest = { expandedState.value = false }
-                    ) {
-                        categories.forEach { category ->
-                            DropdownMenuItem(
-                                text = { Text(category.name) },
-                                onClick = {
-                                    selectedCategoryState.value = category.name
-                                    expandedState.value = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Text("Media", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { galleryLauncher.launch("image/*") },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Img Gallery", fontSize = 10.sp)
-                    }
-                    Button(
-                        onClick = { 
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                try {
-                                    val directory = File(context.filesDir, "images")
-                                    if (!directory.exists()) directory.mkdirs()
-                                    val file = File(directory, "temp_camera_${System.currentTimeMillis()}.jpg")
-                                    val uri = FileProvider.getUriForFile(context, "com.example.myrecipe.fileprovider", file)
-                                    currentTempUriState.value = uri
-                                    cameraLauncher.launch(uri)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Img Camera", fontSize = 10.sp)
-                    }
-                }
-
-                Button(
-                    onClick = { videoLauncher.launch("video/*") },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                ) {
-                    Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Select Video File")
-                }
-
-                // Image Preview (Modern Addition)
-                if (imageUriState.value != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imageUriState.value)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Selected Image",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        // Small overlay to indicate it's a preview
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.5f)
-                        ) {
-                            IconButton(
-                                onClick = { imageUriState.value = null },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = videoLinkState.value,
-                    onValueChange = { 
-                        videoLinkState.value = it
-                        if (it.isNotBlank()) videoUriState.value = null
-                    },
-                    label = { Text("Or Paste Video Link (YouTube/Web)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    placeholder = { Text("https://...") }
-                )
-
-                if (imageUriState.value != null || videoUriState.value != null || videoLinkState.value.isNotBlank()) {
-                    Text("Preview Attached", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                }
-
-                OutlinedTextField(
-                    value = descriptionState.value,
-                    onValueChange = { descriptionState.value = it },
-                    label = { Text("Description") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = ingredientsState.value,
-                    onValueChange = { ingredientsState.value = it },
-                    label = { Text("Ingredients (one per line)") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = instructionsState.value,
-                    onValueChange = { instructionsState.value = it },
-                    label = { Text("Cooking Steps (one per line)") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = ratingState.value,
-                        onValueChange = { ratingState.value = it },
-                        label = { Text("Rating") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                    )
-                    OutlinedTextField(
-                        value = tagsState.value,
-                        onValueChange = { tagsState.value = it },
-                        label = { Text("Tags") },
-                        modifier = Modifier.weight(2f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (titleState.value.isNotBlank()) {
-                        val finalVideoUri = if (videoLinkState.value.isNotBlank()) Uri.parse(videoLinkState.value) else videoUriState.value
-                        onRecipeAdded(
-                            Recipe(
-                                title = titleState.value,
-                                description = descriptionState.value,
-                                ingredients = ingredientsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
-                                instructions = instructionsState.value.split("\n").map { it.trim() }.filter { it.isNotEmpty() },
-                                imageUri = imageUriState.value,
-                                videoUri = finalVideoUri,
-                                rating = ratingState.value.toDoubleOrNull() ?: 0.0,
-                                tags = tagsState.value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { if (it.startsWith("#")) it else "#$it" },
-                                category = selectedCategoryState.value
-                            )
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Add")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    }, confirmButton = { Button({ if (title.value.isNotBlank()) onRecipeAdded(Recipe(title=title.value, description=desc.value, ingredients=ing.value.split("\n").filter { it.isNotBlank() }, instructions=ins.value.split("\n").filter { it.isNotBlank() }, imageUri=img.value, videoUri=if (vidL.value.isNotBlank()) Uri.parse(vidL.value) else vid.value, rating=rat.value.toDoubleOrNull() ?: 0.0, tags=tags.value.split(",").filter { it.isNotBlank() }, category=cat.value)) }) { Text("Add") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }

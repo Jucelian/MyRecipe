@@ -17,6 +17,7 @@ object Recipes : Table("recipes") {
     val isFavorite = bool("isFavorite")
     val owner = varchar("owner", 50)
     val createdAt = long("createdAt").default(System.currentTimeMillis())
+    val isPublic = bool("is_public").default(false)
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -33,6 +34,28 @@ object Users : Table("users") {
 object Categories : Table("categories") {
     val id = varchar("id", 50)
     val name = varchar("name", 100)
+    val owner = varchar("owner", 50)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object ShoppingList : Table("shopping_list") {
+    val id = varchar("id", 50)
+    val name = varchar("name", 255)
+    val quantity = varchar("quantity", 100)
+    val category = varchar("category", 100)
+    val isChecked = bool("is_checked")
+    val owner = varchar("owner", 50)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object MealPlans : Table("meal_plans") {
+    val id = varchar("id", 50)
+    val recipeId = varchar("recipe_id", 50)
+    val recipeTitle = varchar("recipe_title", 255)
+    val date = long("date")
+    val mealType = varchar("meal_type", 20)
     val owner = varchar("owner", 50)
 
     override val primaryKey = PrimaryKey(id)
@@ -62,7 +85,7 @@ fun initDatabase() {
         }
 
         transaction {
-            SchemaUtils.createMissingTablesAndColumns(Recipes, Users, Categories, RefreshTokens)
+            SchemaUtils.createMissingTablesAndColumns(Recipes, Users, Categories, ShoppingList, MealPlans, RefreshTokens)
         }
         println("Database initialized successfully!")
     } catch (e: Exception) {

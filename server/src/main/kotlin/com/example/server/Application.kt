@@ -47,7 +47,9 @@ data class RecipeDTO(
     @SerialName("isFavorite")
     val isFavorite: Boolean = false,
     val owner: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @SerialName("isPublic")
+    val isPublic: Boolean = false
 )
 
 @Serializable
@@ -62,6 +64,27 @@ data class UserDTO(
 data class CategoryDTO(
     val id: String,
     val name: String = "",
+    val owner: String = ""
+)
+
+@Serializable
+data class ShoppingItemDTO(
+    val id: String,
+    val name: String = "",
+    val quantity: String = "",
+    val category: String = "Other",
+    @SerialName("isChecked")
+    val isChecked: Boolean = false,
+    val owner: String = ""
+)
+
+@Serializable
+data class MealPlanDTO(
+    val id: String,
+    val recipeId: String = "",
+    val recipeTitle: String = "",
+    val date: Long = 0L,
+    val mealType: String = "",
     val owner: String = ""
 )
 
@@ -181,8 +204,8 @@ fun Application.module() {
                     val request = call.receive<AiGenerateRequest>()
                     val seed = (Math.random() * 1000000).toInt()
                     
-                    // Stronger prompt to avoid human characters and focus on the object
-                    val refinedPrompt = "A professional 3D icon of ${request.prompt}, isolated on white background, centered, no humans, no people, high detail, masterpiece, studio lighting"
+                    // Ultra-refined vector icon prompt
+                    val refinedPrompt = "Clean vector icon of ${request.prompt}, professional logo style, flat design, minimalist, 2D, white background, no humans, no people, no hands, centered, high quality, masterpiece"
                     
                     val imageUrl = "https://image.pollinations.ai/prompt/${URLEncoder.encode(refinedPrompt, "UTF-8")}?width=512&height=512&seed=$seed&nologo=true&model=flux"
                     
@@ -196,10 +219,19 @@ fun Application.module() {
 
             // 3. Recipes
             route("/recipes") {
+                get("/community") {
+                    val list = transaction {
+                        Recipes.selectAll().where { Recipes.isPublic eq true }.limit(50).map { row ->
+                            RecipeDTO(row[Recipes.id], row[Recipes.title], row[Recipes.description], row[Recipes.ingredients]?.split("|"), row[Recipes.instructions]?.split("|"), row[Recipes.imageUri], row[Recipes.videoUri], row[Recipes.rating], row[Recipes.tags]?.split("|"), row[Recipes.category], row[Recipes.isFavorite], row[Recipes.owner], row[Recipes.createdAt], row[Recipes.isPublic])
+                        }
+                    }
+                    call.respond(list)
+                }
+                
                 get("/{owner}") {
                     val owner = call.parameters["owner"] ?: ""
                     val list = transaction { Recipes.selectAll().where { Recipes.owner eq owner }.map { row ->
-                        RecipeDTO(row[Recipes.id], row[Recipes.title], row[Recipes.description], row[Recipes.ingredients]?.split("|"), row[Recipes.instructions]?.split("|"), row[Recipes.imageUri], row[Recipes.videoUri], row[Recipes.rating], row[Recipes.tags]?.split("|"), row[Recipes.category], row[Recipes.isFavorite], row[Recipes.owner], row[Recipes.createdAt])
+                        RecipeDTO(row[Recipes.id], row[Recipes.title], row[Recipes.description], row[Recipes.ingredients]?.split("|"), row[Recipes.instructions]?.split("|"), row[Recipes.imageUri], row[Recipes.videoUri], row[Recipes.rating], row[Recipes.tags]?.split("|"), row[Recipes.category], row[Recipes.isFavorite], row[Recipes.owner], row[Recipes.createdAt], row[Recipes.isPublic])
                     }}
                     call.respond(list)
                 }
@@ -208,9 +240,9 @@ fun Application.module() {
                     transaction {
                         val exists = Recipes.selectAll().where { Recipes.id eq r.id }.any()
                         if (exists) {
-                            Recipes.update({ Recipes.id eq r.id }) { it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt }
+                            Recipes.update({ Recipes.id eq r.id }) { it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt; it[isPublic] = r.isPublic }
                         } else {
-                            Recipes.insert { it[id] = r.id; it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt }
+                            Recipes.insert { it[id] = r.id; it[title] = r.title; it[description] = r.description ?: ""; it[ingredients] = r.ingredients?.joinToString("|") ?: ""; it[instructions] = r.instructions?.joinToString("|") ?: ""; it[imageUri] = r.imageUri; it[videoUri] = r.videoUri; it[rating] = r.rating ?: 0.0; it[tags] = r.tags?.joinToString("|") ?: ""; it[category] = r.category ?: "General"; it[isFavorite] = r.isFavorite; it[owner] = r.owner; it[createdAt] = r.createdAt; it[isPublic] = r.isPublic }
                         }
                     }
                     call.respond(mapOf("status" to "success"))
@@ -241,8 +273,86 @@ fun Application.module() {
                     call.respond(mapOf("status" to "success"))
                 }
             }
+
+            // 5. Shopping List
+            route("/shopping") {
+                get("/{owner}") {
+                    val owner = call.parameters["owner"] ?: ""
+                    val list = transaction { ShoppingList.selectAll().where { ShoppingList.owner eq owner }.map { row ->
+                        ShoppingItemDTO(row[ShoppingList.id], row[ShoppingList.name], row[ShoppingList.quantity], row[ShoppingList.category], row[ShoppingList.isChecked], row[ShoppingList.owner])
+                    }}
+                    call.respond(list)
+                }
+                post {
+                    val item = call.receive<ShoppingItemDTO>()
+                    transaction {
+                        val exists = ShoppingList.selectAll().where { ShoppingList.id eq item.id }.any()
+                        if (exists) {
+                            ShoppingList.update({ ShoppingList.id eq item.id }) {
+                                it[name] = item.name
+                                it[quantity] = item.quantity
+                                it[category] = item.category
+                                it[isChecked] = item.isChecked
+                            }
+                        } else {
+                            ShoppingList.insert {
+                                it[id] = item.id
+                                it[name] = item.name
+                                it[quantity] = item.quantity
+                                it[category] = item.category
+                                it[isChecked] = item.isChecked
+                                it[owner] = item.owner
+                            }
+                        }
+                    }
+                    call.respond(mapOf("status" to "success"))
+                }
+                delete("/{id}") {
+                    transaction { ShoppingList.deleteWhere { ShoppingList.id eq (call.parameters["id"] ?: "") } }
+                    call.respond(mapOf("status" to "success"))
+                }
+            }
+
+            // 6. Meal Planner
+            route("/planner") {
+                get("/{owner}") {
+                    val owner = call.parameters["owner"] ?: ""
+                    val list = transaction { MealPlans.selectAll().where { MealPlans.owner eq owner }.map { row ->
+                        MealPlanDTO(row[MealPlans.id], row[MealPlans.recipeId], row[MealPlans.recipeTitle], row[MealPlans.date], row[MealPlans.mealType], row[MealPlans.owner])
+                    }}
+                    call.respond(list)
+                }
+                post {
+                    val plan = call.receive<MealPlanDTO>()
+                    transaction {
+                        val exists = MealPlans.selectAll().where { MealPlans.id eq plan.id }.any()
+                        if (exists) {
+                            MealPlans.update({ MealPlans.id eq plan.id }) {
+                                it[recipeId] = plan.recipeId
+                                it[recipeTitle] = plan.recipeTitle
+                                it[date] = plan.date
+                                it[mealType] = plan.mealType
+                            }
+                        } else {
+                            MealPlans.insert {
+                                it[id] = plan.id
+                                it[recipeId] = plan.recipeId
+                                it[recipeTitle] = plan.recipeTitle
+                                it[date] = plan.date
+                                it[mealType] = plan.mealType
+                                it[owner] = plan.owner
+                            }
+                        }
+                    }
+                    call.respond(mapOf("status" to "success"))
+                }
+                delete("/{id}") {
+                    transaction { MealPlans.deleteWhere { MealPlans.id eq (call.parameters["id"] ?: "") } }
+                    call.respond(mapOf("status" to "success"))
+                }
+            }
             
-            // 5. Raw File Upload
+            // 7. Raw File Upload
             post("/upload") {
                 val multipart = call.receiveMultipart()
                 var name = ""; var bytes: ByteArray? = null
