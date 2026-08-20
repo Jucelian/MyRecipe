@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.myrecipe.ui.theme.ChefBackground
@@ -106,29 +108,56 @@ fun YouTubePlayer(url: String, modifier: Modifier = Modifier) {
     }
 
     if (videoId != null) {
-        AndroidView(
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.loadWithOverviewMode = true
-                    settings.useWideViewPort = true
-                    webViewClient = WebViewClient()
-                    webChromeClient = WebChromeClient()
-                    loadUrl("https://www.youtube.com/embed/$videoId")
-                }
-            },
-            modifier = modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp))
-        )
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 11f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        
+                        // Force a Desktop User Agent to bypass "Open App" mobile banners and scaling issues
+                        settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+                        
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        
+                        // Hardware acceleration is crucial for smooth video playback
+                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                        
+                        // Reset scrollbars to prevent white space gutters
+                        isVerticalScrollBarEnabled = false
+                        isHorizontalScrollBarEnabled = false
+                        scrollBarStyle = android.view.View.SCROLLBARS_OUTSIDE_OVERLAY
+                        
+                        webViewClient = WebViewClient()
+                        webChromeClient = WebChromeClient()
+                        
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                        
+                        loadUrl("https://www.youtube.com/embed/$videoId?modestbranding=1&rel=0&iv_load_policy=3&controls=1")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     } else {
         val context = LocalContext.current
         Button(
-            onClick = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) },
+            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) },
             modifier = modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(Color.Gray)
+            colors = ButtonDefaults.buttonColors(Color.Gray),
+            shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.AutoMirrored.Filled.OpenInNew, null)
             Spacer(Modifier.width(8.dp))
-            Text("Open External Link")
+            Text("Open External Video")
         }
     }
 }
@@ -419,6 +448,9 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
     val plans by viewModel.mealPlans.collectAsState()
     val editMealPlanState = remember { mutableStateOf<MealPlan?>(null) }
     val context = LocalContext.current
+    
+    // Use ViewModel state for persistence
+    val expandedDays = viewModel.expandedDays
 
     val days = remember {
         val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
@@ -432,76 +464,149 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
             day.timeInMillis
         }
     }
+    
+    // Initialize all to expanded by default if not set
+    LaunchedEffect(days) {
+        days.forEach { if (!expandedDays.containsKey(it)) expandedDays[it] = true }
+    }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Button(
-                onClick = { 
-                    viewModel.generateShoppingListForWeek()
-                    Toast.makeText(context, "Added missing ingredients for the week!", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
-            ) {
-                Icon(Icons.Default.AutoFixHigh, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Auto-Generate Weekly Shopping List", fontWeight = FontWeight.Bold)
+    val listState = rememberLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Button(
+                    onClick = { 
+                        viewModel.generateShoppingListForWeek()
+                        Toast.makeText(context, "Added missing ingredients for the week!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                ) {
+                    Icon(Icons.Default.AutoFixHigh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Auto-Generate Weekly Shopping List", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            days.forEach { dayTimestamp ->
+                val dayPlans = plans.filter { plan ->
+                    val planCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = plan.date }
+                    val dayCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = dayTimestamp }
+                    planCal.get(Calendar.YEAR) == dayCal.get(Calendar.YEAR) &&
+                    planCal.get(Calendar.DAY_OF_YEAR) == dayCal.get(Calendar.DAY_OF_YEAR)
+                }
+                
+                val isExpanded = expandedDays[dayTimestamp] ?: true
+
+                item(key = "header_$dayTimestamp") {
+                    val sdf = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
+                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                    val dateStr = sdf.format(Date(dayTimestamp))
+                    val isToday = dayTimestamp == days[0]
+                    
+                    Column(
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .clickable { expandedDays[dayTimestamp] = !isExpanded }
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isToday) "Today - $dateStr" else dateStr,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                )
+                                if (!isExpanded && dayPlans.isNotEmpty()) {
+                                    Text(
+                                        text = "${dayPlans.size} meal${if (dayPlans.size > 1) "s" else ""} planned",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                
+                if (isExpanded) {
+                    if (dayPlans.isEmpty()) {
+                        item(key = "empty_$dayTimestamp") {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    "No meals planned",
+                                    modifier = Modifier.padding(16.dp),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        items(dayPlans, key = { it.id }) { plan ->
+                            MealPlanRow(
+                                plan = plan,
+                                onDelete = { viewModel.deleteMealPlan(plan) },
+                                onEdit = { editMealPlanState.value = plan }
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        days.forEach { dayTimestamp ->
-            val dayPlans = plans.filter { plan ->
-                val planCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = plan.date }
-                val dayCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = dayTimestamp }
-                planCal.get(Calendar.YEAR) == dayCal.get(Calendar.YEAR) &&
-                planCal.get(Calendar.DAY_OF_YEAR) == dayCal.get(Calendar.DAY_OF_YEAR)
+        // Custom Scrollbar
+        val scrollbarInfo by remember {
+            derivedStateOf {
+                val layoutInfo = listState.layoutInfo
+                val totalItems = layoutInfo.totalItemsCount
+                if (totalItems <= 0 || layoutInfo.visibleItemsInfo.size >= totalItems) return@derivedStateOf null
+                
+                val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull() ?: return@derivedStateOf null
+                
+                val thumbHeightPercent = (layoutInfo.visibleItemsInfo.size.toFloat() / totalItems).coerceIn(0.1f, 1f)
+                val scrollPercent = (firstVisibleItem.index.toFloat() / (totalItems - layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)).coerceIn(0f, 1f)
+                
+                thumbHeightPercent to scrollPercent
             }
-            
-            item(key = "header_$dayTimestamp") {
-                val sdf = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
-                sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                val dateStr = sdf.format(Date(dayTimestamp))
-                val isToday = dayTimestamp == days[0]
-                Column(modifier = Modifier.padding(top = 8.dp)) {
-                    Text(
-                        text = if (isToday) "Today - $dateStr" else dateStr,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
-                }
-            }
-            
-            if (dayPlans.isEmpty()) {
-                item(key = "empty_$dayTimestamp") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            "No meals planned",
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            } else {
-                items(dayPlans, key = { it.id }) { plan ->
-                    MealPlanRow(
-                        plan = plan,
-                        onDelete = { viewModel.deleteMealPlan(plan) },
-                        onEdit = { editMealPlanState.value = plan }
-                    )
-                }
+        }
+
+        scrollbarInfo?.let { (thumbHeight, scrollPos) ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp, top = 64.dp, bottom = 64.dp)
+                    .fillMaxHeight()
+                    .width(4.dp)
+                    .background(Color.Gray.copy(alpha = 0.1f), CircleShape)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(thumbHeight)
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            translationY = (size.height - (size.height * thumbHeight)) * scrollPos
+                        }
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
+                )
             }
         }
     }
@@ -540,58 +645,131 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
     val items by viewModel.shoppingList.collectAsState()
     val context = LocalContext.current
     val groupedItems = remember(items) { items.groupBy { it.category } }
+    
+    // Use ViewModel state for persistence
+    val expandedCategories = viewModel.expandedCategories
+    
+    // Initialize all to expanded by default if not set
+    LaunchedEffect(groupedItems.keys) {
+        groupedItems.keys.forEach { category ->
+            if (!expandedCategories.containsKey(category)) {
+                expandedCategories[category] = true
+            }
+        }
+    }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (items.isNotEmpty()) {
-                IconButton(onClick = { shareShoppingList(context, items) }) {
-                    Icon(Icons.Default.Share, "Share List", tint = MaterialTheme.colorScheme.primary)
+    val listState = rememberLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (items.isNotEmpty()) {
+                    IconButton(onClick = { shareShoppingList(context, items) }) {
+                        Icon(Icons.Default.Share, "Share List", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                if (items.any { it.isChecked }) {
+                    TextButton(onClick = { viewModel.clearCheckedShoppingItems() }) {
+                        Text("Clear Completed")
+                    }
                 }
             }
-            if (items.any { it.isChecked }) {
-                TextButton(onClick = { viewModel.clearCheckedShoppingItems() }) {
-                    Text("Clear Completed")
+            
+            if (items.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState("Shopping list is empty.", Icons.Default.ListAlt)
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    groupedItems.forEach { (category, categoryItems) ->
+                        val isExpanded = expandedCategories[category] ?: true
+                        
+                        item {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .padding(top = 8.dp, bottom = 4.dp)
+                                    .clickable { expandedCategories[category] = !isExpanded }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = category,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                        
+                        if (isExpanded) {
+                            items(categoryItems) { item ->
+                                ShoppingItemRow(
+                                    item,
+                                    onToggle = { viewModel.toggleShoppingItem(item) },
+                                    onDelete = { viewModel.deleteShoppingItem(item) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
-        
-        if (items.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState("Shopping list is empty.", Icons.Default.ListAlt)
+
+        // Custom Scrollbar
+        val scrollbarInfo by remember {
+            derivedStateOf {
+                val layoutInfo = listState.layoutInfo
+                val totalItems = layoutInfo.totalItemsCount
+                if (totalItems <= 0 || layoutInfo.visibleItemsInfo.size >= totalItems) return@derivedStateOf null
+                
+                val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull() ?: return@derivedStateOf null
+                
+                val thumbHeightPercent = (layoutInfo.visibleItemsInfo.size.toFloat() / totalItems).coerceIn(0.1f, 1f)
+                val scrollPercent = (firstVisibleItem.index.toFloat() / (totalItems - layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)).coerceIn(0f, 1f)
+                
+                thumbHeightPercent to scrollPercent
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+        }
+
+        scrollbarInfo?.let { (thumbHeight, scrollPos) ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp, top = 64.dp, bottom = 64.dp)
+                    .fillMaxHeight()
+                    .width(4.dp)
+                    .background(Color.Gray.copy(alpha = 0.1f), CircleShape)
             ) {
-                groupedItems.forEach { (category, categoryItems) ->
-                    item {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                        ) {
-                            Text(
-                                text = category,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(thumbHeight)
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            translationY = (size.height - (size.height * thumbHeight)) * scrollPos
                         }
-                    }
-                    items(categoryItems) { item ->
-                        ShoppingItemRow(
-                            item,
-                            onToggle = { viewModel.toggleShoppingItem(item) },
-                            onDelete = { viewModel.deleteShoppingItem(item) }
-                        )
-                    }
-                }
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
+                )
             }
         }
     }
@@ -881,7 +1059,16 @@ fun RecipeDetailDialog(recipe: Recipe, viewModel: RecipeViewModel, onDismiss: ()
     val fav = remember { mutableStateOf(recipe.isFavorite) }
     val isPub = recipe.owner == "Public"
     var servings by remember { mutableIntStateOf(1) }
-    AlertDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false), modifier = Modifier.fillMaxWidth(0.92f), title = { Column(modifier = Modifier.fillMaxWidth()) { Text(recipe.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { if (isPub && onSave != null) { IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, null, tint = MaterialTheme.colorScheme.primary) } } else if (!isPub) { IconButton(onClick = { viewModel.togglePublish(recipe) }) { Icon(if (recipe.isPublic) Icons.Default.Public else Icons.Default.PublicOff, null, tint = if (recipe.isPublic) MaterialTheme.colorScheme.primary else Color.Gray) }; IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) } }; if (!isPub) { IconButton(onClick = { fav.value = !fav.value; onFav() }) { Icon(if (fav.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (fav.value) Color.Red else Color.Gray) } }; IconButton(onClick = { onSchedule?.invoke() }) { Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary) } } } }, text = { Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) { if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo)); Button(onClick = { onStartCooking?.invoke() }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Restaurant, null); Spacer(Modifier.width(12.dp)); Text("START COOKING", fontWeight = FontWeight.ExtraBold) }; Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(16.dp)) { Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Groups, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Text("Servings:", style = MaterialTheme.typography.titleMedium) }; Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { if (servings > 1) servings-- }) { Icon(Icons.Default.Remove, null) }; Text(servings.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); IconButton(onClick = { servings++ }) { Icon(Icons.Default.Add, null) } } } }; if (recipe.videoUri != null) { if (recipe.videoUri.toString().startsWith("http")) YouTubePlayer(recipe.videoUri.toString()) else VideoPlayer(recipe.videoUri) }; recipe.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }; recipe.ingredients?.let { list -> Column { Text("Ingredients", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEach { i -> val scaledIngredient = scaleIngredient(i, servings.toDouble()); Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(6.dp).background(MaterialTheme.colorScheme.secondary, CircleShape)); Spacer(Modifier.width(12.dp)); Text(scaledIngredient, Modifier.weight(1f)); IconButton({ viewModel.addIngredientsToShoppingList(Recipe(title = recipe.title, ingredients = listOf(scaledIngredient), owner = recipe.owner, id = recipe.id, category = recipe.category)); Toast.makeText(context, "Added to shopping list", Toast.LENGTH_SHORT).show() }, Modifier.size(24.dp)) { Icon(Icons.Default.AddShoppingCart, null, Modifier.size(16.dp), MaterialTheme.colorScheme.primary) } } } } }; recipe.instructions?.let { list -> Column { Text("Instructions", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEachIndexed { idx, s -> Row(Modifier.padding(vertical = 6.dp)) { Text("${idx + 1}", Modifier.background(MaterialTheme.colorScheme.secondaryContainer, CircleShape).size(24.dp).wrapContentSize(Alignment.Center)); Spacer(Modifier.width(12.dp)); Text(s) } } } } } }, confirmButton = { Button(onClick = onDismiss) { Text("Close") } })
+    AlertDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false), modifier = Modifier.fillMaxWidth(0.92f), title = { Column(modifier = Modifier.fillMaxWidth()) { Text(recipe.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { if (isPub && onSave != null) { IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, null, tint = MaterialTheme.colorScheme.primary) } } else if (!isPub) { IconButton(onClick = { viewModel.togglePublish(recipe) }) { Icon(if (recipe.isPublic) Icons.Default.Public else Icons.Default.PublicOff, null, tint = if (recipe.isPublic) MaterialTheme.colorScheme.primary else Color.Gray) }; IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) } }; if (!isPub) { IconButton(onClick = { fav.value = !fav.value; onFav() }) { Icon(if (fav.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (fav.value) Color.Red else Color.Gray) } }; IconButton(onClick = { onSchedule?.invoke() }) { Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary) } } } }, text = { Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) { if (recipe.imageUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(recipe.imageUri).crossfade(true).build(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop, placeholder = painterResource(R.drawable.chefmate_logo));             Button(onClick = { onStartCooking?.invoke() }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Restaurant, null); Spacer(Modifier.width(12.dp)); Text("START COOKING", fontWeight = FontWeight.ExtraBold) };
+            if (recipe.videoUri != null) {
+                if (recipe.videoUri.toString().startsWith("http")) {
+                    YouTubePlayer(recipe.videoUri.toString())
+                } else {
+                    VideoPlayer(recipe.videoUri)
+                }
+            }
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(16.dp)) { Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Groups, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Text("Servings:", style = MaterialTheme.typography.titleMedium) }; Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { if (servings > 1) servings-- }) { Icon(Icons.Default.Remove, null) }; Text(servings.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); IconButton(onClick = { servings++ }) { Icon(Icons.Default.Add, null) } } } };
+recipe.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }; recipe.ingredients?.let { list -> Column { Text("Ingredients", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEach { i -> val scaledIngredient = scaleIngredient(i, servings.toDouble()); Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(6.dp).background(MaterialTheme.colorScheme.secondary, CircleShape)); Spacer(Modifier.width(12.dp)); Text(scaledIngredient, Modifier.weight(1f)); IconButton({ viewModel.addIngredientsToShoppingList(Recipe(title = recipe.title, ingredients = listOf(scaledIngredient), owner = recipe.owner, id = recipe.id, category = recipe.category)); Toast.makeText(context, "Added to shopping list", Toast.LENGTH_SHORT).show() }, Modifier.size(24.dp)) { Icon(Icons.Default.AddShoppingCart, null, Modifier.size(16.dp), MaterialTheme.colorScheme.primary) } } } } }; recipe.instructions?.let { list -> Column { Text("Instructions", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); list.forEachIndexed { idx, s -> Row(Modifier.padding(vertical = 6.dp)) { Text("${idx + 1}", Modifier.background(MaterialTheme.colorScheme.secondaryContainer, CircleShape).size(24.dp).wrapContentSize(Alignment.Center)); Spacer(Modifier.width(12.dp)); Text(s) } } } } } }, confirmButton = { Button(onClick = onDismiss) { Text("Close") } })
 }
 
 private fun formatScaledQuantity(value: Double): String {

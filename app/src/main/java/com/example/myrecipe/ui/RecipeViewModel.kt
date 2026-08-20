@@ -3,6 +3,7 @@ package com.example.myrecipe.ui
 import android.app.Application
 import android.net.Uri
 import android.util.Log
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myrecipe.data.AppDatabase
@@ -26,6 +27,22 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import java.io.File
 import java.io.FileOutputStream
+
+private fun mapToAisle(category: String?, ingredient: String): String {
+    val cat = category?.lowercase() ?: ""
+    val ing = ingredient.lowercase()
+    
+    return when {
+        ing.contains("chicken") || ing.contains("beef") || ing.contains("pork") || ing.contains("lamb") || ing.contains("bacon") || ing.contains("steak") || cat.contains("chicken") || cat.contains("beef") || cat.contains("pork") || cat.contains("lamb") || cat.contains("meat") -> "Meat & Poultry"
+        ing.contains("fish") || ing.contains("shrimp") || ing.contains("prawn") || ing.contains("salmon") || cat.contains("seafood") -> "Seafood"
+        ing.contains("milk") || ing.contains("cheese") || ing.contains("butter") || ing.contains("yogurt") || ing.contains("cream") || ing.contains("egg") -> "Dairy & Eggs"
+        ing.contains("onion") || ing.contains("garlic") || ing.contains("tomato") || ing.contains("potato") || ing.contains("carrot") || ing.contains("lettuce") || ing.contains("apple") || ing.contains("banana") || cat.contains("vegetarian") || cat.contains("vegan") -> "Produce"
+        ing.contains("flour") || ing.contains("sugar") || ing.contains("oil") || ing.contains("salt") || ing.contains("pepper") || ing.contains("spice") || ing.contains("sauce") -> "Pantry"
+        ing.contains("bread") || ing.contains("pasta") || ing.contains("rice") || ing.contains("noodle") || cat.contains("pasta") -> "Grains & Pasta"
+        cat.contains("dessert") || cat.contains("sweet") || ing.contains("chocolate") || ing.contains("cake") -> "Sweet Treats"
+        else -> "Other"
+    }
+}
 
 class RecipeViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
@@ -186,7 +203,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 kotlinx.coroutines.delay(30000) // Auto-refresh every 30 seconds when app is active
                 if (currentOwner.value.isNotBlank()) {
                     try {
-                        repository.refreshData(currentOwner.value)
+                        refreshData(currentOwner.value, silent = true)
                     } catch (e: Exception) {
                         // Silent failure for auto-refresh
                     }
@@ -236,11 +253,15 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _communityRecipes = MutableStateFlow<List<Recipe>>(emptyList())
     val communityRecipes: StateFlow<List<Recipe>> = _communityRecipes
 
-    fun refreshData(owner: String, forceDailyRefresh: Boolean = false) {
+    // UI State Persistence
+    val expandedCategories = mutableStateMapOf<String, Boolean>()
+    val expandedDays = mutableStateMapOf<Long, Boolean>()
+
+    fun refreshData(owner: String, forceDailyRefresh: Boolean = false, silent: Boolean = false) {
         if (owner.isBlank() || _isRefreshing.value) return
         currentOwner.value = owner
         viewModelScope.launch {
-            _isRefreshing.value = true
+            if (!silent) _isRefreshing.value = true
             try {
                 // Fetch latest from server (which also pushes local changes)
                 repository.refreshData(owner)
@@ -249,7 +270,7 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 // Also fetch community recipes
                 fetchCommunityRecipes()
             } catch (e: Exception) {
-                _errorMessage.value = "Failed to sync data: ${e.message}"
+                if (!silent) _errorMessage.value = "Failed to sync data: ${e.message}"
             } finally {
                 _isRefreshing.value = false
             }
@@ -436,13 +457,14 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                             quantity = newQuantity,
                             isSynced = false,
                             recipeId = existingItem.recipeId ?: recipe.id,
-                            recipeTitle = existingItem.recipeTitle ?: recipe.title
+                            recipeTitle = existingItem.recipeTitle ?: recipe.title,
+                            category = mapToAisle(recipe.category, ingredient)
                         )
                         repository.updateShoppingItem(updatedItem)
                     } else {
                         val item = ShoppingItem(
                             name = ingredient,
-                            category = recipe.category ?: "Other",
+                            category = mapToAisle(recipe.category, ingredient),
                             owner = currentOwner.value,
                             recipeId = recipe.id,
                             recipeTitle = recipe.title
@@ -517,26 +539,39 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                     set(java.util.Calendar.MILLISECOND, 0)
                 }
                 val startTime = startCalendar.timeInMillis
-                // Look ahead 8 days to be safe and cover timezone edge cases
                 val endTime = startTime + 8 * 24 * 60 * 60 * 1000L
                 
                 val weeklyPlans = mealPlans.value.filter { it.date in startTime..endTime }
-                val allRecipes = recipes.value
-                val currentShoppingList = shoppingList.value
+                Log.d("RecipeViewModel", "Generating shopping list. Found ${weeklyPlans.size} plans in range.")
                 
+                val allLocalRecipes = recipes.value
+                val currentShoppingList = shoppingList.value
                 val itemsToAdd = mutableListOf<ShoppingItem>()
+                val publicApi = RetrofitClient.publicInstance
 
                 weeklyPlans.forEach { plan ->
-                    val recipe = allRecipes.find { it.id == plan.recipeId }
+                    // 1. Try to find the recipe (Local or fetch from Remote)
+                    val recipe: Recipe? = if (plan.recipeId.startsWith("mealdb_")) {
+                        Log.d("RecipeViewModel", "Fetching remote recipe for shopping list: ${plan.recipeTitle}")
+                        try {
+                            val id = plan.recipeId.removePrefix("mealdb_")
+                            publicApi.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                        } catch (e: Exception) {
+                            Log.e("RecipeViewModel", "Failed to fetch remote recipe ${plan.recipeId}: ${e.message}")
+                            null
+                        }
+                    } else {
+                        allLocalRecipes.find { it.id == plan.recipeId }
+                    }
+
                     recipe?.ingredients?.forEach { ingredient ->
-                        // Check if already in current list OR already planned to be added
-                        val alreadyExists = currentShoppingList.any { it.name.equals(ingredient, ignoreCase = true) && !it.isChecked } ||
-                                            itemsToAdd.any { it.name.equals(ingredient, ignoreCase = true) }
+                        val alreadyInList = currentShoppingList.any { it.name.equals(ingredient, ignoreCase = true) && !it.isChecked }
+                        val alreadyPlanned = itemsToAdd.any { it.name.equals(ingredient, ignoreCase = true) }
                         
-                        if (!alreadyExists) {
+                        if (!alreadyInList && !alreadyPlanned) {
                             itemsToAdd.add(ShoppingItem(
                                 name = ingredient,
-                                category = recipe.category ?: "Other",
+                                category = mapToAisle(recipe.category, ingredient),
                                 owner = currentOwner.value,
                                 recipeId = recipe.id,
                                 recipeTitle = recipe.title
@@ -546,8 +581,10 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 
                 if (itemsToAdd.isNotEmpty()) {
-                    Log.d("RecipeViewModel", "Auto-generating shopping list: adding ${itemsToAdd.size} items")
+                    Log.d("RecipeViewModel", "Adding ${itemsToAdd.size} unique ingredients to shopping list")
                     repository.addShoppingItems(itemsToAdd, currentOwner.value)
+                } else {
+                    Log.d("RecipeViewModel", "No new ingredients to add")
                 }
             } catch (e: Exception) {
                 Log.e("RecipeViewModel", "Failed to generate shopping list: ${e.message}")
@@ -652,12 +689,88 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _isGeneratingAI.value = true
             try {
-                // For now, search public recipes that match these ingredients
-                val query = ingredients.joinToString(",")
-                searchPublicRecipes(query)
-                // The recommendations will be in publicSearchResults
+                val api = RetrofitClient.publicInstance
+                
+                // 1. Flatten and clean ingredients (handle potential commas in items)
+                val cleanIngredients = ingredients
+                    .flatMap { it.split(",") }
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                
+                Log.d("RecipeViewModel", "Starting Fridge AI with ${cleanIngredients.size} clean ingredients: $cleanIngredients")
+                
+                if (cleanIngredients.isEmpty()) {
+                    _publicSearchResults.value = emptyList()
+                    return@launch
+                }
+
+                // 2. Search for each ingredient individually and collect IDs
+                val idCounts = mutableMapOf<String, Int>()
+                
+                coroutineScope {
+                    cleanIngredients.map { ingredient ->
+                        async {
+                            try {
+                                val response = api.getRecipesByIngredient(ingredient)
+                                response.meals?.forEach { meal ->
+                                    synchronized(idCounts) {
+                                        idCounts[meal.idMeal] = idCounts.getOrDefault(meal.idMeal, 0) + 1
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e("RecipeViewModel", "Failed to search for $ingredient: ${e.message}")
+                            }
+                        }
+                    }.awaitAll()
+                }
+
+                Log.d("RecipeViewModel", "Found ${idCounts.size} total candidate recipes across all ingredients")
+
+                // 3. Fetch details for the top recipes (those that matched the most user ingredients)
+                val topIds = idCounts.entries
+                    .sortedByDescending { it.value }
+                    .take(20) // Increase to 20 for better variety
+                    .map { it.key }
+
+                val candidates = coroutineScope {
+                    topIds.map { id ->
+                        async {
+                            try {
+                                api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe()
+                            } catch (e: Exception) { null }
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+                // 4. Perform "Coverage Scoring": How many ingredients in the recipe does the user have?
+                val userIngs = cleanIngredients.map { it.lowercase() }
+                
+                val rankedResults = candidates.map { recipe ->
+                    val recipeIngs = recipe.ingredients?.map { it.lowercase() } ?: emptyList()
+                    
+                    var matches = 0
+                    recipeIngs.forEach { ri ->
+                        if (userIngs.any { ui -> ri.contains(ui) || ui.contains(ri) }) {
+                            matches++
+                        }
+                    }
+                    
+                    // Score = Match Density (what % of recipe do we have) + Absolute Match Bonus
+                    // This prioritizes simpler recipes where you have almost everything
+                    val matchRatio = if (recipeIngs.isNotEmpty()) matches.toDouble() / recipeIngs.size else 0.0
+                    val score = matchRatio + (matches * 0.2)
+                    recipe to score
+                }.sortedByDescending { it.second }
+                .map { it.first }
+
+                Log.d("RecipeViewModel", "Ranked ${rankedResults.size} recipes for the user")
+                _publicSearchResults.value = rankedResults
+                _aiGeneratedRecipe.value = rankedResults.firstOrNull()
+                
             } catch (e: Exception) {
-                Log.e("RecipeViewModel", "AI generation failed: ${e.message}")
+                Log.e("RecipeViewModel", "Advanced Fridge AI failed: ${e.message}")
+                _errorMessage.value = "AI Search failed. Please check your connection."
+                _publicSearchResults.value = emptyList()
             } finally {
                 _isGeneratingAI.value = false
             }

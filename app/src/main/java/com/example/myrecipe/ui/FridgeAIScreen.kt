@@ -2,11 +2,14 @@ package com.example.myrecipe.ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -39,7 +42,7 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -47,14 +50,14 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 4.dp)
         )
         Text(
             text = "Tell me what ingredients you have, and I'll suggest a recipe!",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(bottom = 16.dp)
         )
 
         OutlinedTextField(
@@ -66,7 +69,8 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
             trailingIcon = {
                 IconButton(onClick = {
                     if (ingredientInput.isNotBlank()) {
-                        ingredients.add(ingredientInput.trim())
+                        val newIngs = ingredientInput.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                        ingredients.addAll(newIngs)
                         ingredientInput = ""
                     }
                 }) {
@@ -76,7 +80,8 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onDone = {
                     if (ingredientInput.isNotBlank()) {
-                        ingredients.add(ingredientInput.trim())
+                        val newIngs = ingredientInput.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                        ingredients.addAll(newIngs)
                         ingredientInput = ""
                     }
                 }
@@ -85,41 +90,86 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
             shape = RoundedCornerShape(16.dp)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ingredients.forEach { ingredient ->
-                InputChip(
-                    selected = true,
-                    onClick = { ingredients.remove(ingredient) },
-                    label = { Text(ingredient) },
-                    trailingIcon = {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+        // Ingredients display - scrollable if many
+        Box(modifier = Modifier.heightIn(max = 120.dp)) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ingredients.forEach { ingredient ->
+                    InputChip(
+                        selected = true,
+                        onClick = { ingredients.remove(ingredient) },
+                        label = { Text(ingredient) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        colors = InputChipDefaults.inputChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                         )
-                    },
-                    colors = InputChipDefaults.inputChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
-                )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        val recommendations by viewModel.publicSearchResults.collectAsState()
+
+        // Results area - flexible weight
+        Box(modifier = Modifier.weight(1f)) {
+            if (recommendations.isNotEmpty()) {
+                Column {
+                    Text(
+                        "Top Matches for your Fridge:",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(recommendations) { recipe ->
+                            RecipeItemRow(
+                                recipe = recipe,
+                                onDelete = null,
+                                onClick = { onStartCooking(recipe) }
+                            )
+                        }
+                    }
+                }
+            } else if (!isGenerating && ingredients.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    EmptyState(
+                        message = "No exact matches found.\nTry adding fewer ingredients or more basic ones!",
+                        icon = Icons.Default.Kitchen
+                    )
+                }
+            }
+        }
 
         Button(
             onClick = { viewModel.generateRecipeFromIngredients(ingredients.toList()) },
             enabled = ingredients.isNotEmpty() && !isGenerating,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(56.dp)
+                .padding(vertical = 8.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
             if (isGenerating) {
@@ -129,35 +179,12 @@ fun FridgeAIScreen(viewModel: RecipeViewModel, onStartCooking: (Recipe) -> Unit)
                     strokeWidth = 2.dp
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("AI is thinking...")
+                Text("Searching your fridge...")
             } else {
                 Icon(Icons.Default.AutoFixHigh, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Generate AI Recipe", fontWeight = FontWeight.Bold)
+                Text(if (recommendations.isEmpty()) "Find Best Matches" else "Refresh Suggestions", fontWeight = FontWeight.Bold)
             }
         }
-    }
-
-    if (showRecipeDetail && aiRecipe != null) {
-        RecipeDetailDialog(
-            recipe = aiRecipe!!,
-            viewModel = viewModel,
-            onDismiss = { 
-                showRecipeDetail = false
-                viewModel.clearAIRecipe()
-            },
-            onFav = { /* AI recipes not favorites by default */ },
-            onEdit = { /* Cannot edit AI recipe directly */ },
-            onSave = { 
-                viewModel.savePublicRecipe(aiRecipe!!, "AI Creations")
-                showRecipeDetail = false
-                viewModel.clearAIRecipe()
-            },
-            onSchedule = { /* Not implementation for now */ },
-            onStartCooking = { 
-                onStartCooking(aiRecipe!!)
-                showRecipeDetail = false
-            }
-        )
     }
 }
