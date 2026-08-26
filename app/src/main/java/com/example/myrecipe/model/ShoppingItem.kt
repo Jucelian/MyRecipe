@@ -10,7 +10,7 @@ data class ShoppingItem(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val quantity: String? = "",
-    val category: String = "Other",
+    val category: String? = "Other",
     val isChecked: Boolean = false,
     val owner: String = "",
     val recipeId: String? = null,

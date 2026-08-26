@@ -56,6 +56,7 @@ data class RecipeDTO(
 data class UserDTO(
     val username: String, 
     val password: String = "", 
+    val email: String? = null,
     @SerialName("avatarUri")
     val avatarUri: String? = null
 )
@@ -72,7 +73,7 @@ data class ShoppingItemDTO(
     val id: String,
     val name: String = "",
     val quantity: String? = "",
-    val category: String = "Other",
+    val category: String? = "Other",
     @SerialName("isChecked")
     val isChecked: Boolean = false,
     val owner: String = "",
@@ -173,7 +174,12 @@ fun Application.module() {
             val user = call.receive<UserDTO>()
             val now = System.currentTimeMillis()
             try {
-                transaction { Users.insert { it[username] = user.username; it[password] = BCrypt.withDefaults().hashToString(12, user.password.toCharArray()); it[createdAt] = now } }
+                transaction { Users.insert { 
+                    it[username] = user.username
+                    it[password] = BCrypt.withDefaults().hashToString(12, user.password.toCharArray())
+                    it[email] = user.email
+                    it[createdAt] = now 
+                }}
                 call.respond(TokenResponse("success", generateAccessToken(user.username), generateRefreshToken(user.username), now))
             } catch (e: Exception) { call.respond(HttpStatusCode.Conflict, mapOf("message" to "Exists")) }
         }
@@ -184,6 +190,29 @@ fun Application.module() {
             if (userData != null && BCrypt.verifyer().verify(credentials.password.toCharArray(), userData.first).verified) {
                 call.respond(TokenResponse("success", generateAccessToken(credentials.username), generateRefreshToken(credentials.username), userData.second, userData.third))
             } else call.respond(HttpStatusCode.Unauthorized)
+        }
+
+        post("/reset-password") {
+            val req = call.receive<UserDTO>() // Uses username, email and new password (in 'password' field)
+            if (req.username.isBlank() || req.email.isNullOrBlank() || req.password.isBlank()) {
+                return@post call.respond(HttpStatusCode.BadRequest, mapOf("message" to "Missing fields"))
+            }
+
+            val success = transaction {
+                val user = Users.selectAll().where { (Users.username eq req.username) and (Users.email eq req.email) }.singleOrNull()
+                if (user != null) {
+                    Users.update({ Users.username eq req.username }) {
+                        it[password] = BCrypt.withDefaults().hashToString(12, req.password.toCharArray())
+                    }
+                    true
+                } else false
+            }
+
+            if (success) {
+                call.respond(mapOf("status" to "success", "message" to "Password reset successfully"))
+            } else {
+                call.respond(HttpStatusCode.NotFound, mapOf("message" to "User not found or email mismatch"))
+            }
         }
 
         authenticate("auth-jwt") {
@@ -293,7 +322,7 @@ fun Application.module() {
                             ShoppingList.update({ ShoppingList.id eq item.id }) {
                                 it[name] = item.name
                                 it[quantity] = item.quantity
-                                it[category] = item.category
+                                it[category] = item.category ?: "Other"
                                 it[isChecked] = item.isChecked
                                 it[recipeId] = item.recipeId
                                 it[recipeTitle] = item.recipeTitle
@@ -303,7 +332,7 @@ fun Application.module() {
                                 it[id] = item.id
                                 it[name] = item.name
                                 it[quantity] = item.quantity
-                                it[category] = item.category
+                                it[category] = item.category ?: "Other"
                                 it[isChecked] = item.isChecked
                                 it[owner] = item.owner
                                 it[recipeId] = item.recipeId

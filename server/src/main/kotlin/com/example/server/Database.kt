@@ -25,6 +25,7 @@ object Recipes : Table("recipes") {
 object Users : Table("users") {
     val username = varchar("username", 50)
     val password = varchar("password", 255)
+    val email = varchar("email", 100).nullable()
     val avatarUri = varchar("avatarUri", 1024).nullable()
     val createdAt = long("createdate").default(System.currentTimeMillis())
 

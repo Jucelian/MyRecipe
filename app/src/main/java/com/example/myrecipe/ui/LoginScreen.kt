@@ -32,10 +32,12 @@ import com.example.myrecipe.BuildConfig
 fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
     val context = LocalContext.current
     var username by remember { mutableStateOf(authViewModel.savedUsername.value) }
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var rememberBiometric by remember { mutableStateOf(authViewModel.isBiometricEnabled.value) }
     var isSignUp by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
@@ -44,13 +46,13 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
     val biometricHelper = remember { BiometricHelper(context) }
 
     val onAuthAction = {
-        if (username.isBlank() || password.isBlank()) {
+        if (username.isBlank() || password.isBlank() || (isSignUp && email.isBlank())) {
             errorMessage = "Please fill in all fields"
         } else {
             isLoading = true
             errorMessage = null
             if (isSignUp) {
-                authViewModel.signup(username, password) { success ->
+                authViewModel.signup(username, password, email) { success ->
                     if (success) {
                         if (rememberBiometric) authViewModel.setBiometricEnabled(true, password)
                         onLoginSuccess()
@@ -212,25 +214,43 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
                     )
                 )
 
-                errorMessage?.let {
-                    Text(text = it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                if (isSignUp) {
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        placeholder = { Text("Email Address") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        colors = TextFieldDefaults.colors(unfocusedContainerColor = colorScheme.surface, focusedContainerColor = colorScheme.surface, unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = colorScheme.primary)
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Checkbox(
-                        checked = rememberBiometric,
-                        onCheckedChange = { rememberBiometric = it }
-                    )
-                    Text(
-                        text = "Enable Biometric Login",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colorScheme.onBackground
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = rememberBiometric,
+                            onCheckedChange = { rememberBiometric = it }
+                        )
+                        Text(
+                            text = "Biometric",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colorScheme.onBackground
+                        )
+                    }
+
+                    if (!isSignUp) {
+                        TextButton(onClick = { showResetDialog = true }) {
+                            Text("Forgot Password?", style = MaterialTheme.typography.bodySmall, color = colorScheme.primary)
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -291,4 +311,58 @@ fun LoginScreen(authViewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
             }
         }
     }
+
+    if (showResetDialog) {
+        ResetPasswordDialog(
+            authViewModel = authViewModel,
+            onDismiss = { showResetDialog = false }
+        )
+    }
+}
+
+@Composable
+fun ResetPasswordDialog(authViewModel: AuthViewModel, onDismiss: () -> Unit) {
+    var username by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reset Password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Enter your username and email to set a new password.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = newPassword, onValueChange = { newPassword = it }, label = { Text("New Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                message?.let {
+                    Text(text = it, color = if (isError) MaterialTheme.colorScheme.error else Color.Green, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    isLoading = true
+                    authViewModel.resetPassword(username, email, newPassword) { success, msg ->
+                        isLoading = false
+                        message = msg
+                        isError = !success
+                        if (success) {
+                            // Optionally auto-dismiss after delay
+                        }
+                    }
+                },
+                enabled = !isLoading && username.isNotBlank() && email.isNotBlank() && newPassword.isNotBlank()
+            ) {
+                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp)) else Text("Reset")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }

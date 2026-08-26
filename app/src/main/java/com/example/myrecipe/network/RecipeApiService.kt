@@ -19,6 +19,9 @@ interface RecipeApiService {
     @POST("login")
     suspend fun login(@Body user: User): LoginResponse
 
+    @POST("reset-password")
+    suspend fun resetPassword(@Body user: User): Map<String, String>
+
     @POST("refresh")
     suspend fun refreshToken(@Body body: Map<String, String>): LoginResponse
 

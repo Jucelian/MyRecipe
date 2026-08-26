@@ -111,8 +111,8 @@ fun YouTubePlayer(url: String, modifier: Modifier = Modifier) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 11f)
-                .clip(RoundedCornerShape(20.dp))
+                .aspectRatio(16f / 9f) // Standard video ratio
+                .clip(RoundedCornerShape(16.dp))
                 .background(Color.Black)
         ) {
             AndroidView(
@@ -122,29 +122,23 @@ fun YouTubePlayer(url: String, modifier: Modifier = Modifier) {
                         settings.domStorageEnabled = true
                         settings.mediaPlaybackRequiresUserGesture = false
                         
-                        // Force a Desktop User Agent to bypass "Open App" mobile banners and scaling issues
+                        // Force desktop mode to avoid "Open App" banners and mobile layout issues
                         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
                         
                         settings.useWideViewPort = true
                         settings.loadWithOverviewMode = true
                         
-                        // Hardware acceleration is crucial for smooth video playback
-                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                        
-                        // Reset scrollbars to prevent white space gutters
-                        isVerticalScrollBarEnabled = false
-                        isHorizontalScrollBarEnabled = false
-                        scrollBarStyle = android.view.View.SCROLLBARS_OUTSIDE_OVERLAY
-                        
-                        webViewClient = WebViewClient()
                         webChromeClient = WebChromeClient()
+                        webViewClient = WebViewClient()
                         
                         setBackgroundColor(android.graphics.Color.BLACK)
                         
-                        loadUrl("https://www.youtube.com/embed/$videoId?modestbranding=1&rel=0&iv_load_policy=3&controls=1")
+                        // Using standard embed URL
+                        loadUrl("https://www.youtube.com/embed/$videoId?modestbranding=1&rel=0&autoplay=0&showinfo=0&controls=1")
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                onRelease = { it.destroy() }
             )
         }
     } else {
@@ -644,7 +638,7 @@ fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit, onEdit: () -> Unit) {
 fun ShoppingListScreen(viewModel: RecipeViewModel) {
     val items by viewModel.shoppingList.collectAsState()
     val context = LocalContext.current
-    val groupedItems = remember(items) { items.groupBy { it.category } }
+    val groupedItems = remember(items) { items.groupBy { it.category ?: "Other" } }
     
     // Use ViewModel state for persistence
     val expandedCategories = viewModel.expandedCategories

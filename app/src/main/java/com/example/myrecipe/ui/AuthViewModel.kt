@@ -48,10 +48,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         // Restore user if logged in
         if (_isLoggedIn.value) {
             val username = sharedPreferences.getString("saved_username", "") ?: ""
+            val email = sharedPreferences.getString("saved_email", null)
             val createdAt = sharedPreferences.getLong("created_at", 0L)
             val avatarUri = sharedPreferences.getString("avatar_uri", null)
             if (username.isNotBlank()) {
-                _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null, avatarUri)
+                _currentUser.value = User(
+                    username = username,
+                    password = "",
+                    email = email,
+                    createdAt = if (createdAt != 0L) createdAt else null,
+                    avatarUri = avatarUri
+                )
             }
         }
         initSession()
@@ -77,18 +84,18 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun signup(username: String, password: String, onResult: (Boolean) -> Unit) {
+    fun signup(username: String, password: String, email: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
-                val user = User(username, password)
+                val user = User(username, password, email)
                 val response = RetrofitClient.instance.signup(user)
                 val accessToken = response.accessToken
                 val refreshToken = response.refreshToken
                 if (response.status == "success" && accessToken != null && refreshToken != null) {
                     val createdAt = response.createdAt ?: System.currentTimeMillis()
                     val avatarUri = response.avatarUri
-                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri)
-                    _currentUser.value = User(username, "", createdAt, avatarUri)
+                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri, email)
+                    _currentUser.value = User(username, "", email, createdAt, avatarUri)
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -111,8 +118,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.status == "success" && accessToken != null && refreshToken != null) {
                     val createdAt = response.createdAt ?: 0L
                     val avatarUri = response.avatarUri
-                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri)
-                    _currentUser.value = User(username, "", if (createdAt != 0L) createdAt else null, avatarUri)
+                    // Email not returned by login, but we might have it saved
+                    val savedEmail = sharedPreferences.getString("saved_email", null)
+                    saveAuthData(username, accessToken, refreshToken, createdAt, avatarUri, savedEmail)
+                    _currentUser.value = User(
+                        username = username,
+                        password = "",
+                        email = savedEmail,
+                        createdAt = if (createdAt != 0L) createdAt else null,
+                        avatarUri = avatarUri
+                    )
                     _isLoggedIn.value = true
                     resetInactivityTimer()
                     onResult(true)
@@ -121,6 +136,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 onResult(false)
+            }
+        }
+    }
+
+    fun resetPassword(username: String, email: String, newPass: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val user = User(username, newPass, email)
+                val response = RetrofitClient.instance.resetPassword(user)
+                if (response["status"] == "success") {
+                    onResult(true, "Password reset successfully")
+                } else {
+                    onResult(false, response["message"] ?: "Failed to reset password")
+                }
+            } catch (e: Exception) {
+                onResult(false, "Connection error. Please try again.")
             }
         }
     }
@@ -143,14 +174,19 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun saveAuthData(username: String, accessToken: String, refreshToken: String, createdAt: Long, avatarUri: String? = null) {
-        sharedPreferences.edit()
+    private fun saveAuthData(username: String, accessToken: String, refreshToken: String, createdAt: Long, avatarUri: String? = null, email: String? = null) {
+        val editor = sharedPreferences.edit()
             .putString("saved_username", username)
             .putString("auth_token", accessToken)
             .putString("refresh_token", refreshToken)
             .putLong("created_at", createdAt)
             .putString("avatar_uri", avatarUri)
-            .apply()
+        
+        if (email != null) {
+            editor.putString("saved_email", email)
+        }
+        
+        editor.apply()
         _savedUsername.value = username
     }
 
