@@ -82,6 +82,13 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _isSearchingPublic = MutableStateFlow(false)
     val isSearchingPublic: StateFlow<Boolean> = _isSearchingPublic
 
+    private val _selectedDaysCount = MutableStateFlow(7)
+    val selectedDaysCount: StateFlow<Int> = _selectedDaysCount
+
+    fun setSelectedDaysCount(count: Int) {
+        _selectedDaysCount.value = count
+    }
+
     private var lastDailyFetchDay = -1
 
     fun clearError() {
@@ -95,75 +102,69 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         fetchDailyRecipes(forceRandom = false)
     }
 
+    fun refreshDailyRecipes(forceRandom: Boolean = true) {
+        fetchDailyRecipes(forceRandom = forceRandom)
+    }
+
     private fun fetchDailyRecipes(forceRandom: Boolean) {
         val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
-        if (!forceRandom && currentDay == lastDailyFetchDay) return
+        if (!forceRandom && currentDay == lastDailyFetchDay && _dailyRecipes.value.isNotEmpty()) return
         
         lastDailyFetchDay = currentDay
         viewModelScope.launch {
             try {
                 val api = RetrofitClient.publicInstance
                 
-                // Expanded pool for Lunch and Dinner
-                val mainMealPool = listOf(
-                    "Beef", "Chicken", "Goat", "Lamb", "Pasta", 
-                    "Pork", "Seafood", "Vegetarian", "Vegan", "Miscellaneous"
-                )
-                
-                // Better seeding: Combine Year and Day to ensure it's unique every single day forever
                 val calendar = java.util.Calendar.getInstance()
                 val dateSeed = calendar.get(java.util.Calendar.YEAR) * 1000L + calendar.get(java.util.Calendar.DAY_OF_YEAR)
-                
                 val seed = if (forceRandom) System.currentTimeMillis() else dateSeed
-                val random = java.util.Random(seed)
-                
+
+                val usedRecipeIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
                 val results = mutableMapOf<String, List<Recipe>>()
-                
-                // Helper to fetch random recipes from a list of categories with strict dessert filtering
-                suspend fun fetchMixedRecipes(count: Int, pool: List<String>): List<Recipe> {
-                    val shuffledPool = pool.shuffled(random).take(3)
+
+                val lunchPool = listOf("Beef", "Chicken", "Pasta", "Seafood", "Vegetarian")
+                val dinnerPool = listOf("Pork", "Lamb", "Goat", "Vegan", "Miscellaneous", "Chicken")
+
+                suspend fun fetchCategoryRecipes(count: Int, categories: List<String>, offsetSeed: Long): List<Recipe> {
+                    val shuffledCats = categories.shuffled(java.util.Random(seed + offsetSeed))
+                    val candidateIds = mutableListOf<String>()
                     
-                    val allMealIds = coroutineScope {
-                        shuffledPool.map { cat ->
+                    coroutineScope {
+                        shuffledCats.map { cat ->
                             async {
                                 try {
                                     api.getRecipesByCategory(cat).meals?.map { it.idMeal } ?: emptyList()
                                 } catch (e: Exception) { emptyList() }
                             }
-                        }.awaitAll().flatten()
+                        }.awaitAll().forEach { candidateIds.addAll(it) }
                     }
+
+                    val shuffledIds = candidateIds.distinct().shuffled(java.util.Random(seed + offsetSeed + 100))
                     
-                    val shuffledIds = allMealIds.shuffled(random).take(count * 2)
-                    
-                    return coroutineScope {
-                        shuffledIds.map { id ->
-                            async {
-                                try {
-                                    val meal = api.getRecipeDetails(id).meals?.firstOrNull()
-                                    if (meal != null && meal.strCategory != "Dessert") meal.toRecipe() else null
-                                } catch (e: Exception) { null }
+                    val fetched = mutableListOf<Recipe>()
+                    for (id in shuffledIds) {
+                        if (fetched.size >= count) break
+                        if (usedRecipeIds.contains(id)) continue
+                        
+                        try {
+                            val meal = api.getRecipeDetails(id).meals?.firstOrNull()
+                            if (meal != null && usedRecipeIds.add(meal.idMeal)) {
+                                fetched.add(meal.toRecipe())
                             }
-                        }.awaitAll().filterNotNull().take(count)
+                        } catch (e: Exception) { /* skip */ }
                     }
+                    return fetched
                 }
 
                 coroutineScope {
-                    val breakfastJob = async {
-                        val breakfastIds = api.getRecipesByCategory("Breakfast").meals?.shuffled(java.util.Random(seed + 123))?.take(5)?.map { it.idMeal } ?: emptyList()
-                        breakfastIds.map { id -> async { api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe() } }.awaitAll().filterNotNull()
-                    }
-
-                    val lunchJob = async { fetchMixedRecipes(5, mainMealPool) }
-                    val dinnerJob = async { fetchMixedRecipes(5, mainMealPool) }
-
-                    val dessertJob = async {
-                        val dessertIds = api.getRecipesByCategory("Dessert").meals?.shuffled(java.util.Random(seed + 456))?.take(5)?.map { it.idMeal } ?: emptyList()
-                        dessertIds.map { id -> async { api.getRecipeDetails(id).meals?.firstOrNull()?.toRecipe() } }.awaitAll().filterNotNull()
-                    }
+                    val breakfastJob = async { fetchCategoryRecipes(5, listOf("Breakfast"), 100) }
+                    val lunchJob = async { fetchCategoryRecipes(5, lunchPool, 200) }
+                    val dinnerJob = async { fetchCategoryRecipes(5, dinnerPool, 300) }
+                    val dessertJob = async { fetchCategoryRecipes(5, listOf("Dessert"), 400) }
 
                     results["Breakfast"] = breakfastJob.await()
-                    results["Lunch (Mixed)"] = lunchJob.await()
-                    results["Dinner (Mixed)"] = dinnerJob.await()
+                    results["Lunch Choices"] = lunchJob.await()
+                    results["Dinner Choices"] = dinnerJob.await()
                     results["Sweet Treats"] = dessertJob.await()
                 }
 
@@ -496,12 +497,32 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun addCustomShoppingItem(name: String, quantity: String?, category: String) {
+        viewModelScope.launch {
+            try {
+                val item = ShoppingItem(
+                    name = name.trim(),
+                    quantity = quantity?.trim()?.ifBlank { null },
+                    category = category.ifBlank { "Other" },
+                    owner = currentOwner.value
+                )
+                repository.addShoppingItem(item)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add item: ${e.message}"
+            }
+        }
+    }
+
     fun addMealPlan(recipe: Recipe, date: Long, mealType: String) {
+        addMealPlan(recipeTitle = recipe.title, date = date, mealType = mealType, recipeId = recipe.id)
+    }
+
+    fun addMealPlan(recipeTitle: String, date: Long, mealType: String, recipeId: String? = null) {
         viewModelScope.launch {
             try {
                 val plan = MealPlan(
-                    recipeId = recipe.id,
-                    recipeTitle = recipe.title,
+                    recipeId = recipeId ?: "custom_${java.util.UUID.randomUUID()}",
+                    recipeTitle = recipeTitle,
                     date = date,
                     mealType = mealType,
                     owner = currentOwner.value

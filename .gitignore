@@ -15,7 +15,8 @@
 local.properties
 
 # Database files
-data/
+/data/
+/server/data/
 *.db
 *.db-journal
 *.mv.db

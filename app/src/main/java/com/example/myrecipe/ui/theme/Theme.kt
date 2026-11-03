@@ -13,34 +13,53 @@ import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
     primary = ChefDarkPrimary,
-    secondary = ChefSecondary,
-    tertiary = ChefTertiary,
+    onPrimary = ChefDarkOnPrimary,
+    primaryContainer = ChefDarkPrimaryContainer,
+    onPrimaryContainer = ChefDarkOnPrimaryContainer,
+    secondary = ChefDarkSecondary,
+    onSecondary = ChefDarkOnSecondary,
+    secondaryContainer = ChefDarkSecondaryContainer,
+    onSecondaryContainer = ChefDarkOnSecondaryContainer,
+    tertiary = ChefDarkTertiary,
+    onTertiary = ChefDarkOnTertiary,
+    tertiaryContainer = ChefDarkTertiaryContainer,
+    onTertiaryContainer = ChefDarkOnTertiaryContainer,
     background = ChefDarkBackground,
-    surface = ChefDarkSurface,
-    onPrimary = ChefDarkBackground,
-    onSecondary = ChefDarkOnBackground,
-    onTertiary = ChefDarkOnBackground,
     onBackground = ChefDarkOnBackground,
-    onSurface = ChefDarkOnBackground
+    surface = ChefDarkSurface,
+    onSurface = ChefDarkOnSurface,
+    surfaceVariant = ChefDarkSurfaceVariant,
+    onSurfaceVariant = ChefDarkOnSurfaceVariant,
+    outline = ChefOutline,
+    outlineVariant = ChefOutlineVariant
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = ChefPrimary,
-    secondary = ChefSecondary,
-    tertiary = ChefTertiary,
-    background = ChefBackground,
-    surface = ChefSurface,
     onPrimary = ChefOnPrimary,
-    onSecondary = ChefOnPrimary,
-    onTertiary = ChefOnPrimary,
+    primaryContainer = ChefPrimaryContainer,
+    onPrimaryContainer = ChefOnPrimaryContainer,
+    secondary = ChefSecondary,
+    onSecondary = ChefOnSecondary,
+    secondaryContainer = ChefSecondaryContainer,
+    onSecondaryContainer = ChefOnSecondaryContainer,
+    tertiary = ChefTertiary,
+    onTertiary = ChefOnTertiary,
+    tertiaryContainer = ChefTertiaryContainer,
+    onTertiaryContainer = ChefOnTertiaryContainer,
+    background = ChefBackground,
     onBackground = ChefOnBackground,
-    onSurface = ChefOnBackground
+    surface = ChefSurface,
+    onSurface = ChefOnSurface,
+    surfaceVariant = ChefSurfaceVariant,
+    onSurfaceVariant = ChefOnSurfaceVariant,
+    outline = ChefOutline,
+    outlineVariant = ChefOutlineVariant
 )
 
 @Composable
 fun MyRecipeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color disabled to maintain the specific brand palette
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
@@ -51,7 +70,7 @@ fun MyRecipeTheme(
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 

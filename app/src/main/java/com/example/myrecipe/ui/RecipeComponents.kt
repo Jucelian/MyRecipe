@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -263,9 +264,50 @@ fun HomeScreen(viewModel: RecipeViewModel, authViewModel: AuthViewModel, onSched
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (dailyRecipes.isNotEmpty()) {
                 item {
-                    Row(modifier = Modifier.fillMaxWidth().clickable { isDailyPicksExpanded.value = !isDailyPicksExpanded.value; authViewModel.setSectionExpanded("daily_picks", isDailyPicksExpanded.value) }.padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column { Text("Daily Chef's Picks", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold); Text("Today's Inspiration", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground) }
-                        Icon(if (isDailyPicksExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                isDailyPicksExpanded.value = !isDailyPicksExpanded.value
+                                authViewModel.setSectionExpanded("daily_picks", isDailyPicksExpanded.value)
+                            }
+                            .padding(start = 20.dp, top = 24.dp, bottom = 8.dp, end = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Daily Chef's Picks",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Today's Inspiration",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                        
+                        IconButton(
+                            onClick = {
+                                viewModel.refreshDailyRecipes(forceRandom = true)
+                                Toast.makeText(context, "Shuffled new inspiration recipes!", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Shuffle New Inspiration",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        
+                        Icon(
+                            if (isDailyPicksExpanded.value) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
                 if (isDailyPicksExpanded.value) {
@@ -426,40 +468,650 @@ fun CategoryDetailScreen(category: String, recipes: List<Recipe>, onBack: () -> 
 
 @Composable
 fun PlannerScreen(viewModel: RecipeViewModel) {
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerState = rememberPagerState(pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surface, indicator = { tabPositions -> TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]), color = MaterialTheme.colorScheme.primary) }) {
-            Tab(selected = pagerState.currentPage == 0, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }, text = { Text("Meal Plan") })
-            Tab(selected = pagerState.currentPage == 1, onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }, text = { Text("Shopping List") })
+        TabRow(
+            selectedTabIndex = pagerState.currentPage,
+            containerColor = MaterialTheme.colorScheme.surface,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        ) {
+            Tab(
+                selected = pagerState.currentPage == 0,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                text = { Text("Meal Plan") }
+            )
+            Tab(
+                selected = pagerState.currentPage == 1,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                text = { Text("History") }
+            )
+            Tab(
+                selected = pagerState.currentPage == 2,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
+                text = { Text("Shopping List") }
+            )
         }
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page -> if (page == 0) MealPlanScreen(viewModel) else ShoppingListScreen(viewModel) }
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+            when (page) {
+                0 -> MealPlanScreen(viewModel)
+                1 -> MealPlanHistoryScreen(viewModel)
+                2 -> ShoppingListScreen(viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+fun MealPlanHistoryScreen(viewModel: RecipeViewModel) {
+    val plans by viewModel.mealPlans.collectAsState()
+    val context = LocalContext.current
+    
+    val todayStart = remember {
+        val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        cal.timeInMillis
+    }
+
+    val historyPlans = remember(plans, todayStart) {
+        plans.filter { it.date < todayStart }
+            .sortedByDescending { it.date }
+    }
+
+    val groupedHistory = remember(historyPlans) {
+        historyPlans.groupBy { it.date }
+    }
+
+    val recipeToReschedule = remember { mutableStateOf<MealPlan?>(null) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (groupedHistory.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                EmptyState(
+                    message = "No meal plan history yet.\nPast scheduled meals will automatically appear here!",
+                    icon = Icons.Default.History
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onPrimary)
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Meal Plan History",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${historyPlans.size} total past meals recorded",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                groupedHistory.forEach { (dateTimestamp, dayPlans) ->
+                    item(key = "hist_date_$dateTimestamp") {
+                        val sdf = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
+                        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        val dateStr = sdf.format(Date(dateTimestamp))
+                        
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = dateStr,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                                ) {
+                                    Text(
+                                        text = "${dayPlans.size} meal${if (dayPlans.size > 1) "s" else ""}",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    items(dayPlans, key = { "hist_item_${it.id}" }) { plan ->
+                        HistoryMealRow(
+                            plan = plan,
+                            onRePlan = {
+                                recipeToReschedule.value = plan
+                            },
+                            onDelete = {
+                                viewModel.deleteMealPlan(plan)
+                                Toast.makeText(context, "Removed from history", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    recipeToReschedule.value?.let { plan ->
+        ScheduleMealDialog(
+            initialDate = System.currentTimeMillis(),
+            initialType = plan.mealType,
+            onDismiss = { recipeToReschedule.value = null },
+            onSchedule = { newDate, newType ->
+                viewModel.addMealPlan(
+                    recipeTitle = plan.recipeTitle,
+                    date = newDate,
+                    mealType = newType,
+                    recipeId = if (plan.recipeId.startsWith("custom_")) null else plan.recipeId
+                )
+                recipeToReschedule.value = null
+                Toast.makeText(context, "Re-planned '${plan.recipeTitle}'!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+}
+
+@Composable
+fun HistoryMealRow(
+    plan: MealPlan,
+    onRePlan: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isCustomMeal = plan.recipeId.startsWith("custom_")
+    val mealTypeColor = when (plan.mealType) {
+        "Breakfast" -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+        "Lunch" -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+        "Dinner" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = mealTypeColor
+            ) {
+                Text(
+                    text = plan.mealType,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            Spacer(Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = plan.recipeTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (isCustomMeal) "Quick Meal" else "Recipe Meal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+
+            TextButton(
+                onClick = onRePlan,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Re-Plan", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+            
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error.copy(0.6f), modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun DayRangeSelector(
+    selectedDays: Int,
+    onDaysSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val options = listOf(3, 7, 14, 30)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Show:",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        options.forEach { days ->
+            FilterChip(
+                selected = selectedDays == days,
+                onClick = { onDaysSelected(days) },
+                label = { Text("$days Days", style = MaterialTheme.typography.labelSmall, fontWeight = if (selectedDays == days) FontWeight.Bold else FontWeight.Normal) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddCustomMealDialog(
+    recipes: List<Recipe>,
+    initialDate: Long = System.currentTimeMillis(),
+    onDismiss: () -> Unit,
+    onAddMeal: (title: String, date: Long, mealType: String, recipeId: String?) -> Unit
+) {
+    var mealTitle by remember { mutableStateOf("") }
+    var selectedRecipe by remember { mutableStateOf<Recipe?>(null) }
+    var isFromRecipe by remember { mutableStateOf(false) }
+    var selectedMealType by remember { mutableStateOf("Dinner") }
+    var selectedDateMillis by remember { mutableLongStateOf(initialDate) }
+    
+    val mealTypes = listOf("Breakfast", "Lunch", "Dinner", "Snack")
+    var recipeDropdownExpanded by remember { mutableStateOf(false) }
+
+    val availableDates = remember {
+        val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        (0..13).map { offset ->
+            val d = cal.clone() as Calendar
+            d.add(Calendar.DAY_OF_YEAR, offset)
+            d.timeInMillis
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(6.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Plan a Meal",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !isFromRecipe,
+                        onClick = { isFromRecipe = false },
+                        label = { Text("Custom Meal", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    FilterChip(
+                        selected = isFromRecipe,
+                        onClick = { isFromRecipe = true },
+                        label = { Text("From My Recipes", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                if (!isFromRecipe) {
+                    OutlinedTextField(
+                        value = mealTitle,
+                        onValueChange = { mealTitle = it },
+                        label = { Text("Meal Name") },
+                        placeholder = { Text("e.g. Pizza Night, Salad, Eating Out") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        leadingIcon = { Icon(Icons.Default.Restaurant, null) }
+                    )
+                } else {
+                    ExposedDropdownMenuBox(
+                        expanded = recipeDropdownExpanded,
+                        onExpandedChange = { recipeDropdownExpanded = !recipeDropdownExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedRecipe?.title ?: "Select a Recipe",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Saved Recipe") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = recipeDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            leadingIcon = { Icon(Icons.Default.Book, null) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = recipeDropdownExpanded,
+                            onDismissRequest = { recipeDropdownExpanded = false }
+                        ) {
+                            if (recipes.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No saved recipes available") },
+                                    onClick = { recipeDropdownExpanded = false }
+                                )
+                            } else {
+                                recipes.forEach { recipe ->
+                                    DropdownMenuItem(
+                                        text = { Text(recipe.title) },
+                                        onClick = {
+                                            selectedRecipe = recipe
+                                            mealTitle = recipe.title
+                                            recipeDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text("Select Date", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(availableDates) { dateMillis ->
+                        val isSelected = dateMillis == selectedDateMillis
+                        val sdf = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedDateMillis = dateMillis },
+                            label = { Text(sdf.format(Date(dateMillis))) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+
+                Text("Meal Type", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    mealTypes.forEach { type ->
+                        FilterChip(
+                            selected = selectedMealType == type,
+                            onClick = { selectedMealType = type },
+                            label = { Text(type, style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val finalTitle = if (isFromRecipe) selectedRecipe?.title ?: "" else mealTitle.trim()
+                            val recipeId = if (isFromRecipe) selectedRecipe?.id else null
+                            if (finalTitle.isNotBlank()) {
+                                onAddMeal(finalTitle, selectedDateMillis, selectedMealType, recipeId)
+                            }
+                        },
+                        enabled = if (isFromRecipe) selectedRecipe != null else mealTitle.isNotBlank(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.Check, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add Meal")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddShoppingItemDialog(
+    onDismiss: () -> Unit,
+    onAddItem: (name: String, quantity: String?, category: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var quantity by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("Produce") }
+    var categoryDropdownExpanded by remember { mutableStateOf(false) }
+
+    val categories = listOf(
+        "Produce",
+        "Dairy & Eggs",
+        "Meat & Poultry",
+        "Seafood",
+        "Pantry",
+        "Grains & Pasta",
+        "Sweet Treats",
+        "Other"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(6.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.AddShoppingCart,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Add Shopping Item",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Item Name") },
+                    placeholder = { Text("e.g. Milk, Bananas, Olive Oil") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    leadingIcon = { Icon(Icons.Default.ShoppingBag, null) }
+                )
+
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("Quantity (Optional)") },
+                    placeholder = { Text("e.g. 2 lbs, 1 carton") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    leadingIcon = { Icon(Icons.Default.Numbers, null) }
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = categoryDropdownExpanded,
+                    onExpandedChange = { categoryDropdownExpanded = !categoryDropdownExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Category / Aisle") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        leadingIcon = { Icon(Icons.Default.Category, null) }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = categoryDropdownExpanded,
+                        onDismissRequest = { categoryDropdownExpanded = false }
+                    ) {
+                        categories.forEach { cat ->
+                            DropdownMenuItem(
+                                text = { Text(cat) },
+                                onClick = {
+                                    category = cat
+                                    categoryDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank()) {
+                                onAddItem(name, quantity, category)
+                            }
+                        },
+                        enabled = name.isNotBlank(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add to List")
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
 fun MealPlanScreen(viewModel: RecipeViewModel) {
     val plans by viewModel.mealPlans.collectAsState()
-    val editMealPlanState = remember { mutableStateOf<MealPlan?>(null) }
-    val context = LocalContext.current
+    val recipes by viewModel.recipes.collectAsState()
+    val selectedDaysCount by viewModel.selectedDaysCount.collectAsState()
     
-    // Use ViewModel state for persistence
+    val editMealPlanState = remember { mutableStateOf<MealPlan?>(null) }
+    val showAddMealDialogState = remember { mutableStateOf(false) }
+    val initialAddMealDateState = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    
+    val context = LocalContext.current
     val expandedDays = viewModel.expandedDays
 
-    val days = remember {
+    val days = remember(selectedDaysCount) {
         val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
         cal.set(Calendar.HOUR_OF_DAY, 0)
         cal.set(Calendar.MINUTE, 0)
         cal.set(Calendar.SECOND, 0)
         cal.set(Calendar.MILLISECOND, 0)
-        (0..6).map { offset ->
+        (0 until selectedDaysCount).map { offset ->
             val day = cal.clone() as Calendar
             day.add(Calendar.DAY_OF_YEAR, offset)
             day.timeInMillis
         }
     }
     
-    // Initialize all to expanded by default if not set
     LaunchedEffect(days) {
         days.forEach { if (!expandedDays.containsKey(it)) expandedDays[it] = true }
     }
@@ -470,22 +1122,58 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Button(
-                    onClick = { 
-                        viewModel.generateShoppingListForWeek()
-                        Toast.makeText(context, "Added missing ingredients for the week!", Toast.LENGTH_SHORT).show()
-                    },
+                DayRangeSelector(
+                    selectedDays = selectedDaysCount,
+                    onDaysSelected = { viewModel.setSelectedDaysCount(it) }
+                )
+            }
+
+            item {
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 ) {
-                    Icon(Icons.Default.AutoFixHigh, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Auto-Generate Weekly Shopping List", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.generateShoppingListForWeek()
+                                Toast.makeText(context, "Added missing ingredients for the week!", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.AutoFixHigh, null, tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Auto-Generate Weekly Shopping List",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Sync ingredients from planned meals to your list",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        Icon(Icons.Default.ChevronRight, null)
+                    }
                 }
             }
 
@@ -505,34 +1193,53 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
                     val dateStr = sdf.format(Date(dayTimestamp))
                     val isToday = dayTimestamp == days[0]
                     
-                    Column(
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .clickable { expandedDays[dayTimestamp] = !isExpanded }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        color = if (isToday) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { expandedDays[dayTimestamp] = !isExpanded }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (isToday) "Today - $dateStr" else dateStr,
+                                    text = if (isToday) "Today • $dateStr" else dateStr,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
                                 if (!isExpanded && dayPlans.isNotEmpty()) {
                                     Text(
                                         text = "${dayPlans.size} meal${if (dayPlans.size > 1) "s" else ""} planned",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
+                            
+                            IconButton(
+                                onClick = {
+                                    initialAddMealDateState.longValue = dayTimestamp
+                                    showAddMealDialogState.value = true
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Add meal",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            
                             Icon(
                                 imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                 contentDescription = null,
-                                tint = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
                 
@@ -540,17 +1247,34 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
                     if (dayPlans.isEmpty()) {
                         item(key = "empty_$dayTimestamp") {
                             Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                                shape = RoundedCornerShape(12.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        initialAddMealDateState.longValue = dayTimestamp
+                                        showAddMealDialogState.value = true
+                                    },
+                                colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                             ) {
-                                Text(
-                                    "No meals planned",
-                                    modifier = Modifier.padding(16.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.Gray,
-                                    textAlign = TextAlign.Center
-                                )
+                                Row(
+                                    modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddCircleOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "No meals planned — tap to add",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -566,43 +1290,32 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
             }
         }
 
-        // Custom Scrollbar
-        val scrollbarInfo by remember {
-            derivedStateOf {
-                val layoutInfo = listState.layoutInfo
-                val totalItems = layoutInfo.totalItemsCount
-                if (totalItems <= 0 || layoutInfo.visibleItemsInfo.size >= totalItems) return@derivedStateOf null
-                
-                val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull() ?: return@derivedStateOf null
-                
-                val thumbHeightPercent = (layoutInfo.visibleItemsInfo.size.toFloat() / totalItems).coerceIn(0.1f, 1f)
-                val scrollPercent = (firstVisibleItem.index.toFloat() / (totalItems - layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)).coerceIn(0f, 1f)
-                
-                thumbHeightPercent to scrollPercent
-            }
-        }
+        ExtendedFloatingActionButton(
+            onClick = {
+                initialAddMealDateState.longValue = System.currentTimeMillis()
+                showAddMealDialogState.value = true
+            },
+            icon = { Icon(Icons.Default.Add, "Add Meal") },
+            text = { Text("Add Meal", fontWeight = FontWeight.Bold) },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+        )
+    }
 
-        scrollbarInfo?.let { (thumbHeight, scrollPos) ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 4.dp, top = 64.dp, bottom = 64.dp)
-                    .fillMaxHeight()
-                    .width(4.dp)
-                    .background(Color.Gray.copy(alpha = 0.1f), CircleShape)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(thumbHeight)
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer {
-                            translationY = (size.height - (size.height * thumbHeight)) * scrollPos
-                        }
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
-                )
+    if (showAddMealDialogState.value) {
+        AddCustomMealDialog(
+            recipes = recipes,
+            initialDate = initialAddMealDateState.longValue,
+            onDismiss = { showAddMealDialogState.value = false },
+            onAddMeal = { title, date, mealType, recipeId ->
+                viewModel.addMealPlan(recipeTitle = title, date = date, mealType = mealType, recipeId = recipeId)
+                showAddMealDialogState.value = false
+                Toast.makeText(context, "Meal planned!", Toast.LENGTH_SHORT).show()
             }
-        }
+        )
     }
 
     editMealPlanState.value?.let { plan ->
@@ -620,17 +1333,80 @@ fun MealPlanScreen(viewModel: RecipeViewModel) {
 
 @Composable
 fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit, onEdit: () -> Unit) {
+    val isCustomMeal = plan.recipeId.startsWith("custom_")
+    val mealTypeColor = when (plan.mealType) {
+        "Breakfast" -> MaterialTheme.colorScheme.primaryContainer
+        "Lunch" -> MaterialTheme.colorScheme.secondaryContainer
+        "Dinner" -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val mealTypeOnColor = when (plan.mealType) {
+        "Breakfast" -> MaterialTheme.colorScheme.onPrimaryContainer
+        "Lunch" -> MaterialTheme.colorScheme.onSecondaryContainer
+        "Dinner" -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(0.3f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) { Text(plan.mealType, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.width(16.dp)); Text(plan.recipeTitle, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary.copy(0.6f)) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(0.5f)) }
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = mealTypeColor
+            ) {
+                Text(
+                    text = plan.mealType,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = mealTypeOnColor
+                )
+            }
+            
+            Spacer(Modifier.width(14.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = plan.recipeTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (isCustomMeal) "Quick Meal" else "Recipe Meal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+            
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Default.Edit, "Edit", tint = MaterialTheme.colorScheme.primary.copy(0.7f))
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error.copy(0.6f))
+            }
         }
+    }
+}
+
+private fun getCategoryIcon(category: String): ImageVector {
+    val cat = category.lowercase()
+    return when {
+        cat.contains("produce") || cat.contains("fruit") || cat.contains("veg") -> Icons.Default.Kitchen
+        cat.contains("dairy") || cat.contains("egg") -> Icons.Default.Egg
+        cat.contains("meat") || cat.contains("poultry") -> Icons.Default.Restaurant
+        cat.contains("seafood") || cat.contains("fish") -> Icons.Default.Restaurant
+        cat.contains("pantry") -> Icons.Default.Inventory2
+        cat.contains("grain") || cat.contains("pasta") -> Icons.Default.BakeryDining
+        cat.contains("sweet") || cat.contains("treat") || cat.contains("dessert") -> Icons.Default.Cake
+        else -> Icons.Default.ShoppingBag
     }
 }
 
@@ -638,12 +1414,11 @@ fun MealPlanRow(plan: MealPlan, onDelete: () -> Unit, onEdit: () -> Unit) {
 fun ShoppingListScreen(viewModel: RecipeViewModel) {
     val items by viewModel.shoppingList.collectAsState()
     val context = LocalContext.current
-    val groupedItems = remember(items) { items.groupBy { it.category ?: "Other" } }
+    val showAddItemDialog = remember { mutableStateOf(false) }
     
-    // Use ViewModel state for persistence
+    val groupedItems = remember(items) { items.groupBy { it.category ?: "Other" } }
     val expandedCategories = viewModel.expandedCategories
     
-    // Initialize all to expanded by default if not set
     LaunchedEffect(groupedItems.keys) {
         groupedItems.keys.forEach { category ->
             if (!expandedCategories.containsKey(category)) {
@@ -657,66 +1432,116 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (items.isNotEmpty()) {
-                    IconButton(onClick = { shareShoppingList(context, items) }) {
-                        Icon(Icons.Default.Share, "Share List", tint = MaterialTheme.colorScheme.primary)
-                    }
+                val totalCount = items.size
+                val checkedCount = items.count { it.isChecked }
+                
+                Column {
+                    Text(
+                        text = "Shopping Items",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (totalCount == 0) "No items" else "$checkedCount of $totalCount completed",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                if (items.any { it.isChecked }) {
-                    TextButton(onClick = { viewModel.clearCheckedShoppingItems() }) {
-                        Text("Clear Completed")
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (items.isNotEmpty()) {
+                        IconButton(onClick = { shareShoppingList(context, items) }) {
+                            Icon(Icons.Default.Share, "Share List", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    if (items.any { it.isChecked }) {
+                        TextButton(onClick = { viewModel.clearCheckedShoppingItems() }) {
+                            Text("Clear Done", color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
             
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
             if (items.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyState("Shopping list is empty.", Icons.Default.ListAlt)
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyState(
+                        "Your shopping list is empty.\nTap + to add groceries or ingredients!",
+                        Icons.Default.AddShoppingCart
+                    )
                 }
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     groupedItems.forEach { (category, categoryItems) ->
                         val isExpanded = expandedCategories[category] ?: true
+                        val categoryChecked = categoryItems.count { it.isChecked }
                         
-                        item {
+                        item(key = "cat_$category") {
                             Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
+                                    .fillMaxWidth()
                                     .padding(top = 8.dp, bottom = 4.dp)
                                     .clickable { expandedCategories[category] = !isExpanded }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Icon(
+                                        imageVector = getCategoryIcon(category),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
                                     Text(
                                         text = category,
                                         style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         modifier = Modifier.weight(1f)
                                     )
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+                                    ) {
+                                        Text(
+                                            text = "$categoryChecked/${categoryItems.size}",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
                                     Icon(
                                         imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
                         
                         if (isExpanded) {
-                            items(categoryItems) { item ->
+                            items(categoryItems, key = { it.id }) { item ->
                                 ShoppingItemRow(
                                     item,
                                     onToggle = { viewModel.toggleShoppingItem(item) },
@@ -729,61 +1554,105 @@ fun ShoppingListScreen(viewModel: RecipeViewModel) {
             }
         }
 
-        // Custom Scrollbar
-        val scrollbarInfo by remember {
-            derivedStateOf {
-                val layoutInfo = listState.layoutInfo
-                val totalItems = layoutInfo.totalItemsCount
-                if (totalItems <= 0 || layoutInfo.visibleItemsInfo.size >= totalItems) return@derivedStateOf null
-                
-                val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull() ?: return@derivedStateOf null
-                
-                val thumbHeightPercent = (layoutInfo.visibleItemsInfo.size.toFloat() / totalItems).coerceIn(0.1f, 1f)
-                val scrollPercent = (firstVisibleItem.index.toFloat() / (totalItems - layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)).coerceIn(0f, 1f)
-                
-                thumbHeightPercent to scrollPercent
-            }
-        }
+        ExtendedFloatingActionButton(
+            onClick = { showAddItemDialog.value = true },
+            icon = { Icon(Icons.Default.Add, "Add Item") },
+            text = { Text("Add Item", fontWeight = FontWeight.Bold) },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+        )
+    }
 
-        scrollbarInfo?.let { (thumbHeight, scrollPos) ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 4.dp, top = 64.dp, bottom = 64.dp)
-                    .fillMaxHeight()
-                    .width(4.dp)
-                    .background(Color.Gray.copy(alpha = 0.1f), CircleShape)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(thumbHeight)
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer {
-                            translationY = (size.height - (size.height * thumbHeight)) * scrollPos
-                        }
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
-                )
+    if (showAddItemDialog.value) {
+        AddShoppingItemDialog(
+            onDismiss = { showAddItemDialog.value = false },
+            onAddItem = { name, quantity, category ->
+                viewModel.addCustomShoppingItem(name = name, quantity = quantity, category = category)
+                showAddItemDialog.value = false
+                Toast.makeText(context, "Added $name to shopping list!", Toast.LENGTH_SHORT).show()
             }
-        }
+        )
     }
 }
 
 @Composable
 fun ShoppingItemRow(item: ShoppingItem, onToggle: () -> Unit, onDelete: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = item.isChecked, onCheckedChange = { onToggle() })
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = if (item.isChecked) Color.Gray else Color.Unspecified, textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
-            Text(
-                text = if (!item.recipeTitle.isNullOrBlank()) "Recipe: ${item.recipeTitle}" else "Manual Entry",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (item.isChecked) 
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) 
+            else 
+                MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (item.isChecked) 0.dp else 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = item.isChecked,
+                onCheckedChange = { onToggle() },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = MaterialTheme.colorScheme.primary
+                )
             )
+            
+            Spacer(Modifier.width(8.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (item.isChecked) FontWeight.Normal else FontWeight.SemiBold,
+                        color = if (item.isChecked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface,
+                        textDecoration = if (item.isChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    
+                    if (!item.quantity.isNullOrBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        ) {
+                            Text(
+                                text = item.quantity,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+                
+                Text(
+                    text = if (!item.recipeTitle.isNullOrBlank()) "From recipe: ${item.recipeTitle}" else "Manual item",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+            
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove item",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
-        IconButton(onClick = onDelete) { Icon(Icons.Default.Close, null, tint = Color.LightGray) }
     }
 }
 
