@@ -157,12 +157,47 @@ fun Application.module() {
         get("/app/version") {
             val props = Properties()
             object {}.javaClass.classLoader.getResourceAsStream("version.properties")?.use { props.load(it) }
+
             call.respond(UpdateInfo(
                 props.getProperty("versionCode", "1").toInt(),
                 props.getProperty("versionName", "1.0"),
-                "https://${call.request.host()}/app/download",
+                "/app/download",
                 props.getProperty("releaseNotes", "New update")
             ))
+        }
+
+        get("/app/download") {
+            val localApk = sequenceOf(
+                File("server/src/main/resources/updates/ChefMate_debug.apk"),
+                File("src/main/resources/updates/ChefMate_debug.apk"),
+                File("server/src/main/resources/updates/ChefMate-release.apk"),
+                File("src/main/resources/updates/ChefMate-release.apk"),
+                File("app/debug/ChefMate_debug.apk"),
+                File("app/release/ChefMate-release.apk"),
+                File("../app/debug/ChefMate_debug.apk")
+            ).firstOrNull { it.exists() }
+
+            if (localApk != null && localApk.exists()) {
+                call.response.header(
+                    HttpHeaders.ContentDisposition,
+                    ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, "ChefMate_update.apk").toString()
+                )
+                call.respondFile(localApk)
+            } else {
+                val apkStream = object {}.javaClass.classLoader.getResourceAsStream("updates/ChefMate_debug.apk")
+                    ?: object {}.javaClass.classLoader.getResourceAsStream("updates/ChefMate-release.apk")
+                
+                if (apkStream != null) {
+                    val bytes = apkStream.readBytes()
+                    call.response.header(
+                        HttpHeaders.ContentDisposition,
+                        ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, "ChefMate_update.apk").toString()
+                    )
+                    call.respondBytes(bytes, ContentType.Application.OctetStream)
+                } else {
+                    call.respond(HttpStatusCode.NotFound, "Update APK not found on server")
+                }
+            }
         }
 
         get("/uploads/{name}") {
